@@ -19,11 +19,58 @@ model User {
   role      String   @default("STUDENT") // "ADMIN", "TEACHER", "STUDENT"
   
   // Relaciones
-  resources Resource[] // Recursos subidos por el docente
+  coursesTaught Course[]       @relation("TeacherCourses") // Cursos dados por este docente
+  enrollments   Enrollment[]   // Estudiantes inscritos en cursos
   backpackItems BackpackItem[] // Items en la mochila del estudiante
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Course {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  
+  teacherId   String
+  teacher     User     @relation("TeacherCourses", fields: [teacherId], references: [id])
+
+  sessions    Session[]
+  enrollments Enrollment[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Enrollment {
+  id        String   @id @default(uuid())
+  
+  studentId String
+  student   User     @relation(fields: [studentId], references: [id])
+  
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  grade     Float?   // Calificación del estudiante en este curso
+
+  enrolledAt DateTime @default(now())
+
+  @@unique([studentId, courseId])
+}
+
+model Session {
+  id          String   @id @default(uuid())
+  title       String   // Ej: "SESIÓN 1_FEB 11", "General"
+  description String?
+  order       Int      @default(0) // Para ordenar en el menú
+
+  courseId    String
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  resources   Resource[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Resource {
@@ -33,9 +80,8 @@ model Resource {
   url         String   // Enlace al material (PDF, Link, etc)
   type        String   // Ej: "PDF", "VIDEO", "LINK"
   
-  // Relación con el Docente o Admin que lo subió
-  teacherId   String
-  teacher     User     @relation(fields: [teacherId], references: [id])
+  sessionId   String
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   
   // Elementos de mochila que referencian a este recurso
   backpackItems BackpackItem[]
@@ -52,7 +98,7 @@ model BackpackItem {
   student     User     @relation(fields: [studentId], references: [id])
   
   resourceId  String
-  resource    Resource @relation(fields: [resourceId], references: [id])
+  resource    Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
   
   savedAt     DateTime @default(now())
 
