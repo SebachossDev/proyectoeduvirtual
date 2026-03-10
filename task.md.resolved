@@ -1,0 +1,16 @@
+# Proyecto EduVirtual - Checkout Frontend
+
+- [x] Crear / Modificar [App.tsx](file:///c:/Users/johan/OneDrive/Escritorio/Trabajos%20LastSemester/Proyecto%20Integrador/ProyectoEduVirtual/src/App.tsx) y [main.tsx](file:///c:/Users/johan/OneDrive/Escritorio/Trabajos%20LastSemester/Proyecto%20Integrador/ProyectoEduVirtual/src/main.tsx)
+- [x] Implementar [Login.tsx](file:///c:/Users/johan/OneDrive/Escritorio/Trabajos%20LastSemester/Proyecto%20Integrador/ProyectoEduVirtual/src/pages/Login.tsx) (con el código proporcionado)
+- [x] Separar estilos de [Login.tsx](file:///c:/Users/johan/OneDrive/Escritorio/Trabajos%20LastSemester/Proyecto%20Integrador/ProyectoEduVirtual/src/pages/Login.tsx) en [Login.module.css](file:///c:/Users/johan/OneDrive/Escritorio/Trabajos%20LastSemester/Proyecto%20Integrador/ProyectoEduVirtual/src/pages/Login.module.css) (o index.css)
+- [ ] Crear estructura básica para Estudiante Dashboard y Docente Dashboard
+- [x] Configurar TypeScript o JavaScript en base a los aportes
+
+## Base de Datos y Dashboards LMS
+- [x] Instalar Prisma ORM
+- [x] Crear esquema Prisma con roles (ADMIN, TEACHER, STUDENT) y Mochila Virtual
+- [ ] Construir layout y estilos base de navegación para dashboards
+- [ ] Crear página de AdminDashboard
+- [ ] Crear página de TeacherDashboard
+- [ ] Crear página de StudentDashboard
+- [ ] Integrar mock/backend básico para crear usuarios y probar login real

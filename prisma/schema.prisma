@@ -1,0 +1,61 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Usaremos SQLite para desarrollo local por simplicidad en la configuración
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  code      String   @unique // Ejemplo: A123 (Admin), E1234 (Estudiante), D123 (Docente)
+  password  String
+  name      String
+  role      String   @default("STUDENT") // "ADMIN", "TEACHER", "STUDENT"
+  
+  // Relaciones
+  resources Resource[] // Recursos subidos por el docente
+  backpackItems BackpackItem[] // Items en la mochila del estudiante
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Resource {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  url         String   // Enlace al material (PDF, Link, etc)
+  type        String   // Ej: "PDF", "VIDEO", "LINK"
+  
+  // Relación con el Docente o Admin que lo subió
+  teacherId   String
+  teacher     User     @relation(fields: [teacherId], references: [id])
+  
+  // Elementos de mochila que referencian a este recurso
+  backpackItems BackpackItem[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Representa un recurso guardado por un estudiante en su "Mochila"
+model BackpackItem {
+  id          String   @id @default(uuid())
+  
+  studentId   String
+  student     User     @relation(fields: [studentId], references: [id])
+  
+  resourceId  String
+  resource    Resource @relation(fields: [resourceId], references: [id])
+  
+  savedAt     DateTime @default(now())
+
+  // Un estudiante no puede guardar el mismo recurso dos veces
+  @@unique([studentId, resourceId])
+}
