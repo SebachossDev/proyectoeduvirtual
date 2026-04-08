@@ -1,131 +1,299 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { motion } from 'motion/react';
-import { LogOut, GraduationCap, Backpack, Search, PlayCircle, Star, Filter } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { 
+    LogOut, Backpack,
+    BookOpen, Calculator, Users, FileSpreadsheet, Code,
+    X, FileText, Video, Link as LinkIcon, Calendar, ArrowLeft, Bot, Send, Sparkles, Database
+} from 'lucide-react';
+
+interface Course {
+    id: string;
+    title: string;
+    description: string;
+    progress: number;
+    bgClass: string;
+    textClass: string;
+    progressClass: string;
+    icon: React.ElementType;
+}
+
+const COURSES: Course[] = [
+    {
+        id: '1',
+        title: 'Cálculo Monovariable',
+        description: 'Límites, derivadas e integrales',
+        progress: 68,
+        bgClass: 'bg-blue-500',
+        textClass: 'text-blue-500',
+        progressClass: 'bg-gradient-to-r from-cyan-400 to-blue-600',
+        icon: Calculator
+    },
+    {
+        id: '2',
+        title: 'Gestión de Talentos Humanos',
+        description: 'Reclutamiento y desarrollo organizacional',
+        progress: 45,
+        bgClass: 'bg-fuchsia-500',
+        textClass: 'text-fuchsia-500',
+        progressClass: 'bg-gradient-to-r from-purple-500 to-fuchsia-500',
+        icon: Users
+    },
+    {
+        id: '3',
+        title: 'Excel II',
+        description: 'Funciones avanzadas y análisis de datos',
+        progress: 82,
+        bgClass: 'bg-emerald-500',
+        textClass: 'text-emerald-500',
+        progressClass: 'bg-gradient-to-r from-emerald-400 to-green-600',
+        icon: FileSpreadsheet
+    },
+    {
+        id: '4',
+        title: 'Desarrollo II',
+        description: 'Programación orientada a objetos',
+        progress: 55,
+        bgClass: 'bg-orange-600',
+        textClass: 'text-orange-500',
+        progressClass: 'bg-gradient-to-r from-orange-400 to-red-600',
+        icon: Code
+    }
+];
 
 export default function StudentDashboard() {
     const navigate = useNavigate();
+    
+    // View state
+    const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
+    const [isBackpackOpen, setIsBackpackOpen] = useState(false);
+    
+    // Chat state
+    const [chatInput, setChatInput] = useState('');
 
     const handleLogout = () => {
         navigate('/login');
     };
 
     return (
-        <div className="min-h-screen bg-zinc-950 text-white flex">
-            {/* Sidebar - Navigation */}
-            <div className="w-64 bg-zinc-900 border-r border-zinc-800 p-6 flex flex-col">
-                <div className="flex items-center gap-3 mb-10 text-cyan-400">
-                    <GraduationCap className="w-8 h-8" />
-                    <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-emerald-400">
-                        Estudiante
-                    </h1>
+        <div className="h-screen w-full bg-[#0d0d0f] text-zinc-200 flex font-sans overflow-hidden">
+            {/* Minimalist Sidebar */}
+            <div className="w-20 bg-[#161618] border-r border-zinc-800/50 flex flex-col items-center py-6 gap-6 z-20 shrink-0">
+                {/* User/Avatar Icon */}
+                <div className="w-10 h-10 rounded-xl bg-indigo-500 flex items-center justify-center font-bold text-white shadow-lg mb-4 text-sm">
+                    I
                 </div>
 
-                <nav className="flex-1 space-y-2">
-                    <div className="p-3 bg-cyan-500/10 text-cyan-400 rounded-lg flex items-center gap-3 font-medium">
-                        <Search className="w-5 h-5" />
-                        Explorar
-                    </div>
-                    <div className="p-3 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 rounded-lg flex items-center gap-3 font-medium transition-colors cursor-pointer">
-                        <Backpack className="w-5 h-5" />
-                        Mi Mochila
-                    </div>
-                </nav>
-
-                {/* User Card */}
-                <div className="mt-auto mb-4 p-4 rounded-xl bg-zinc-800/50 flex items-center gap-3 border border-zinc-700/50">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-500 flex items-center justify-center font-bold">
-                        ES
-                    </div>
-                    <div>
-                        <p className="text-sm font-semibold">Johan (Estudiante)</p>
-                        <p className="text-xs text-zinc-400">E12345</p>
-                    </div>
-                </div>
-
-                <button
-                    onClick={handleLogout}
-                    className="p-3 text-red-500 hover:bg-red-500/10 rounded-lg flex items-center justify-center gap-2 font-medium transition-colors w-full"
+                {/* Nav Icons */}
+                <button 
+                    onClick={() => { setSelectedCourse(null); setIsBackpackOpen(false); }}
+                    className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
+                        !selectedCourse && !isBackpackOpen ? 'bg-teal-500/20 text-teal-400' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
+                    }`}
                 >
-                    <LogOut className="w-4 h-4" />
-                    Cerrar Sesión
+                    <BookOpen className="w-6 h-6" />
                 </button>
+
+                <div className="relative">
+                    <button 
+                        onClick={() => { setIsBackpackOpen(!isBackpackOpen); }}
+                        className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
+                            isBackpackOpen ? 'bg-purple-600/20 text-purple-400' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
+                        }`}
+                    >
+                        <Backpack className="w-6 h-6" />
+                    </button>
+                    {/* Active indicatior or border could go here */}
+                </div>
+
+                <div className="mt-auto">
+                    <button 
+                        onClick={handleLogout}
+                        className="w-12 h-12 rounded-xl flex items-center justify-center text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-all font-light"
+                        title="Cerrar Sesión"
+                    >
+                        <LogOut className="w-6 h-6" strokeWidth={1.5} />
+                    </button>
+                </div>
             </div>
 
-            {/* Main Content */}
-            <div className="flex-1 p-8 h-screen overflow-y-auto">
-                <header className="mb-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <div>
-                        <h2 className="text-3xl font-bold mb-2">Bienvenido de nuevo 👋</h2>
-                        <p className="text-zinc-400">Encuentra los materiales para continuar tu aprendizaje.</p>
-                    </div>
+            {/* Main Content Area */}
+            <div className="flex-1 flex flex-col relative h-full overflow-hidden">
+                {!selectedCourse ? (
+                    /* Dashboard View */
+                    <div className={`p-8 md:p-12 transition-all duration-300 h-full overflow-y-auto ${isBackpackOpen ? 'pr-[350px]' : ''}`}>
+                        <header className="mb-14">
+                            <h1 className="text-3xl font-bold text-white mb-2 tracking-tight">Bienvenido de vuelta</h1>
+                            <p className="text-zinc-400 font-light">Continúa tu aprendizaje autodidacta con IA especializada</p>
+                        </header>
 
-                    <div className="flex items-center gap-3 w-full md:w-auto">
-                        <div className="relative flex-1 md:w-64">
-                            <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-                            <input
-                                type="text"
-                                placeholder="Buscar recursos..."
-                                className="w-full bg-zinc-900 border border-zinc-800 rounded-full py-2 pl-10 pr-4 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 text-sm transition-all text-white placeholder:text-zinc-600"
-                            />
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-5xl">
+                            {COURSES.map((course, index) => (
+                                <motion.div 
+                                    key={course.id}
+                                    initial={{ opacity: 0, y: 15 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: index * 0.1 }}
+                                    onClick={() => setSelectedCourse(course)}
+                                    className="bg-[#141416] border border-zinc-800/60 rounded-2xl p-6 cursor-pointer hover:border-zinc-700 transition-all group"
+                                >
+                                    <div className="flex justify-between items-start mb-6">
+                                        <div className={`w-12 h-12 rounded-2xl ${course.bgClass} flex items-center justify-center text-white shadow-lg`}>
+                                            <course.icon className="w-6 h-6" />
+                                        </div>
+                                    </div>
+                                    
+                                    <h3 className="text-lg font-bold text-white mb-1 group-hover:text-white transition-colors">{course.title}</h3>
+                                    <p className="text-sm text-zinc-400 mb-8 font-light line-clamp-1">{course.description}</p>
+                                    
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between text-[11px]">
+                                            <span className="text-zinc-500 font-medium tracking-wide">Progreso</span>
+                                            <span className={`${course.textClass} text-xs font-bold`}>{course.progress}%</span>
+                                        </div>
+                                        <div className="h-1.5 w-full bg-zinc-800/80 rounded-full overflow-hidden">
+                                            <div 
+                                                className={`h-full rounded-full ${course.progressClass}`} 
+                                                style={{ width: `${course.progress}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            ))}
                         </div>
-                        <button className="p-2.5 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-colors">
-                            <Filter className="w-5 h-5" />
-                        </button>
                     </div>
-                </header>
-
-                {/* Content Tabs (Mock) */}
-                <div className="flex gap-4 mb-8 border-b border-zinc-800">
-                    <button className="pb-3 border-b-2 border-cyan-400 text-cyan-400 font-medium px-2">
-                        Recomendados
-                    </button>
-                    <button className="pb-3 text-zinc-500 font-medium hover:text-zinc-300 px-2 transition-colors">
-                        Recientes
-                    </button>
-                    <button className="pb-3 text-zinc-500 font-medium hover:text-zinc-300 px-2 transition-colors">
-                        Vídeos
-                    </button>
-                </div>
-
-                {/* Resource Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <motion.div
-                        initial={{ opacity: 0, scale: 0.95 }}
+                ) : (
+                    /* Chat View for selected course */
+                    <motion.div 
+                        initial={{ opacity: 0, scale: 0.98 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        className="group relative bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden hover:border-cyan-500/50 transition-all shadow-xl shadow-black/50"
+                        className="flex flex-col h-full bg-[#0d0d0f]"
                     >
-                        {/* Thumbnail Mock */}
-                        <div className="h-40 bg-zinc-800 relative w-full overflow-hidden">
-                            <div className="absolute inset-0 bg-gradient-to-br from-cyan-900/50 to-blue-900/50"></div>
-                            <PlayCircle className="w-12 h-12 text-white/50 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 group-hover:scale-110 group-hover:text-white transition-all shadow-xl rounded-full" />
-                            <span className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-md px-2 py-1 rounded-md text-xs font-medium text-zinc-300">
-                                12:45
-                            </span>
+                        {/* Chat Header */}
+                        <header className="flex items-center justify-between px-8 py-5 bg-[#0d0d0f] border-b border-zinc-800/50">
+                            <div className="flex items-center gap-5">
+                                <button 
+                                    onClick={() => setSelectedCourse(null)}
+                                    className="w-10 h-10 rounded-xl bg-zinc-900/80 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all border border-zinc-800/50"
+                                >
+                                    <ArrowLeft className="w-5 h-5" />
+                                </button>
+                                <div>
+                                    <h2 className="text-lg font-bold text-white leading-tight">{selectedCourse.title}</h2>
+                                    <div className="flex items-center gap-2 text-[11px] font-medium text-zinc-400 mt-1">
+                                        <span className="flex items-center gap-1.5 text-teal-400"><Sparkles className="w-3 h-3" /> IA Especializada</span>
+                                        <span className="text-zinc-600">•</span>
+                                        <span className="flex items-center gap-1.5 text-purple-400"><Database className="w-3 h-3" /> RAG Activo</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="w-10 h-10 rounded-xl bg-blue-500 flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
+                                <Bot className="w-5 h-5" />
+                            </div>
+                        </header>
+
+                        {/* Informational Banner */}
+                        <div className="bg-[#1a1625] border-y border-purple-900/30 px-8 py-4 flex items-start gap-4">
+                            <BookOpen className="w-5 h-5 text-teal-400 shrink-0 mt-0.5" />
+                            <div>
+                                <h4 className="text-white font-medium text-sm">Esta IA está alimentada exclusivamente por la documentación técnica de esta materia</h4>
+                                <p className="text-[11px] text-purple-300/70 mt-1 font-light">Todas las respuestas se basan en el material cargado por tu docente (RAG - Retrieval Augmented Generation)</p>
+                            </div>
                         </div>
 
-                        <div className="p-5">
-                            <div className="flex justify-between items-start mb-2">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 bg-cyan-400/10 px-2 py-1 rounded-full">
-                                    VIDEO
-                                </span>
-                                <button className="text-zinc-500 hover:text-yellow-400 transition-colors" title="Guardar en Mochila">
-                                    <Star className="w-5 h-5" />
-                                </button>
-                            </div>
-
-                            <h3 className="font-bold text-lg mb-1 line-clamp-1">Estructuras de Datos I</h3>
-                            <p className="text-zinc-400 text-sm mb-4 line-clamp-2">Aprende sobre Arrays, Listas y Árboles con ejemplos prácticos en TypeScript.</p>
-
-                            <div className="flex items-center gap-2 mt-auto">
-                                <div className="w-6 h-6 rounded-full bg-zinc-700 flex items-center justify-center text-[10px] font-bold text-zinc-300">
-                                    PT
+                        {/* Chat Messages Area */}
+                        <div className="flex-1 overflow-y-auto px-8 py-6 flex flex-col gap-6">
+                            {/* Initial AI Message */}
+                            <div className="flex items-start gap-4 max-w-3xl">
+                                <div className="w-10 h-10 rounded-xl bg-blue-500 flex items-center justify-center text-white shrink-0 mt-2 shadow-lg shadow-blue-500/20">
+                                    <Bot className="w-5 h-5" />
                                 </div>
-                                <span className="text-xs text-zinc-500 font-medium">Prof. Torres</span>
+                                <div>
+                                    <div className="bg-[#141416] border border-zinc-800/80 rounded-2xl rounded-tl-sm p-5 text-zinc-300 text-sm leading-relaxed shadow-sm">
+                                        ¡Hola! Soy tu asistente de IA especializado en {selectedCourse.title}. Estoy alimentado exclusivamente con la documentación técnica y materiales de esta materia. ¿En qué puedo ayudarte hoy?
+                                    </div>
+                                    <span className="text-[10px] text-zinc-500 font-medium ml-2 mt-2 inline-block">18:16</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Chat Input Field */}
+                        <div className="px-8 pb-8 pt-4">
+                            <div className="max-w-4xl mx-auto relative flex items-center">
+                                <input 
+                                    type="text" 
+                                    value={chatInput}
+                                    onChange={(e) => setChatInput(e.target.value)}
+                                    placeholder={`Pregunta algo sobre ${selectedCourse.title}...`}
+                                    className="w-full bg-[#18181b] border border-zinc-800/80 rounded-2xl py-4 pl-6 pr-16 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-700 transition-all font-light"
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            setChatInput('');
+                                        }
+                                    }}
+                                />
+                                <button className="absolute right-3 w-10 h-10 rounded-xl bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-300 transition-all">
+                                    <Send className="w-4 h-4 ml-0.5" />
+                                </button>
                             </div>
                         </div>
                     </motion.div>
-                </div>
+                )}
             </div>
+
+            {/* Mochila Virtual Right Sidebar Drawer */}
+            <AnimatePresence>
+                {isBackpackOpen && !selectedCourse && (
+                    <motion.div 
+                        initial={{ x: 350, opacity: 0 }}
+                        animate={{ x: 0, opacity: 1 }}
+                        exit={{ x: 350, opacity: 0 }}
+                        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                        className="fixed right-0 top-0 bottom-0 w-[350px] bg-[#161618] border-l border-zinc-800/50 flex flex-col shadow-2xl z-20"
+                    >
+                        <header className="p-6 border-b border-zinc-800/50 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="text-purple-400">
+                                    <Backpack className="w-5 h-5" />
+                                </div>
+                                <h3 className="font-bold text-white">Mochila Virtual</h3>
+                            </div>
+                            <button 
+                                onClick={() => setIsBackpackOpen(false)}
+                                className="text-zinc-500 hover:text-white transition-colors"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </header>
+
+                        <div className="p-6 flex-1 overflow-y-auto">
+                            <p className="text-[13px] text-zinc-400 mb-6 font-light leading-relaxed">
+                                Recursos transversales disponibles para todas tus materias
+                            </p>
+
+                            <div className="space-y-3">
+                                {/* Mochila Items */}
+                                {[
+                                    { icon: FileText, title: 'Guía de Estudio 2026', type: 'Document' },
+                                    { icon: Video, title: 'Tutorial: Técnicas de Aprendizaje', type: 'Video' },
+                                    { icon: LinkIcon, title: 'Recursos Adicionales', type: 'Link' },
+                                    { icon: Calendar, title: 'Calendario Académico', type: 'Document' }
+                                ].map((item, i) => (
+                                    <div key={i} className="bg-[#1a1a1c] border border-zinc-800/80 rounded-2xl p-4 flex items-center gap-4 cursor-pointer hover:border-purple-500/30 transition-all group">
+                                        <div className="w-10 h-10 rounded-xl bg-zinc-800/80 flex items-center justify-center text-purple-400 shrink-0 group-hover:bg-purple-500/10 transition-all">
+                                            <item.icon className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <h4 className="text-[13px] font-semibold text-zinc-200 group-hover:text-white transition-colors leading-tight">{item.title}</h4>
+                                            <p className="text-[11px] text-zinc-500 mt-1 font-medium">{item.type}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }
