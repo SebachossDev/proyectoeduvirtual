@@ -8,12 +8,13 @@ const prisma = new PrismaClient();
 app.use(cors());
 app.use(express.json());
 
-// 1. Auth Login (Sin tokens complejos, solo verificar credenciales simples para este MVP)
+// 1. Auth Login
 app.post('/api/login', async (req, res) => {
-    const { code, password } = req.body;
+    const code = req.body.code?.trim();
+    const password = req.body.password?.trim();
     try {
         const user = await prisma.user.findUnique({ where: { code } });
-        if (!user || user.password !== password) {
+        if (!user || user.password.trim() !== password) {
             return res.status(401).json({ error: 'Credenciales inválidas' });
         }
         res.json(user);
@@ -24,12 +25,16 @@ app.post('/api/login', async (req, res) => {
 
 // 2. Usuarios (Solo ADMIN)
 app.get('/api/users', async (req, res) => {
-    const users = await prisma.user.findMany();
+    const users = await prisma.user.findMany({
+        orderBy: { createdAt: 'desc' }
+    });
     res.json(users);
 });
 
 app.post('/api/users', async (req, res) => {
-    const { name, code, password, role } = req.body;
+    const { name, role } = req.body;
+    const code = req.body.code?.trim();
+    const password = req.body.password?.trim();
     try {
         const user = await prisma.user.create({
             data: { name, code, password, role }
@@ -40,11 +45,50 @@ app.post('/api/users', async (req, res) => {
     }
 });
 
-// 3. Cursos (Moodle)
+app.put('/api/users/:id', async (req, res) => {
+    const { id } = req.params;
+    const { name, role } = req.body;
+    const code = req.body.code?.trim();
+    const password = req.body.password?.trim();
+    try {
+        const dataToUpdate: any = { name, code, role };
+        if (password && password.length > 0) {
+            dataToUpdate.password = password;
+        }
+        const user = await prisma.user.update({
+            where: { id },
+            data: dataToUpdate
+        });
+        res.json(user);
+    } catch (error) {
+        res.status(400).json({ error: 'Error al actualizar usuario' });
+    }
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        await prisma.user.delete({ where: { id } });
+        res.json({ success: true });
+    } catch (error) {
+        res.status(400).json({ error: 'Error al eliminar usuario' });
+    }
+});
+
+// 3. Cursos
 app.get('/api/courses', async (req, res) => {
-    // Para simplificar MVP, devolvemos todo. En real filtraríamos por teacherId.
-    const courses = await prisma.course.findMany({ include: { teacher: true, sessions: { include: { resources: true } } } });
-    res.json(courses);
+    const teacherId = req.query.teacherId as string;
+    try {
+        const whereClause = teacherId ? { teacherId } : {};
+        const courses = await prisma.course.findMany({ 
+            where: whereClause,
+            include: { teacher: true, sessions: { include: { resources: true } } },
+            orderBy: { createdAt: 'desc' }
+        });
+        res.json(courses);
+    } catch (error: any) {
+        res.status(400).json({ error: error.message });
+    }
 });
 
 app.post('/api/courses', async (req, res) => {
@@ -90,6 +134,30 @@ app.get('/api/courses/:courseId/participants', async (req, res) => {
         include: { student: true }
     });
     res.json(enrollments);
+});
+
+// NUEVO: Añadir estudiante por código
+app.post('/api/courses/:courseId/enroll', async (req, res) => {
+    const { courseId } = req.params;
+    const code = req.body.code?.trim();
+    
+    try {
+        const student = await prisma.user.findUnique({ where: { code } });
+        
+        if (!student) {
+            return res.status(404).json({ error: 'Estudiante no encontrado con ese código' });
+        }
+        if (student.role !== 'STUDENT') {
+            return res.status(400).json({ error: 'El código pertenece a un usuario que no es estudiante' });
+        }
+        
+        const enrollment = await prisma.enrollment.create({
+            data: { studentId: student.id, courseId }
+        });
+        res.json(enrollment);
+    } catch (error: any) {
+        res.status(400).json({ error: 'Error al matricular, es posible que el estudiante ya esté en el curso' });
+    }
 });
 
 app.put('/api/enrollments/:enrollmentId/grade', async (req, res) => {

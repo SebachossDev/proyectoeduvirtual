@@ -1,6 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router';
-import { LogOut, GraduationCap, FileText, CheckCircle, Activity, Upload, Trash2, Database } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { LogOut, GraduationCap, FileText, CheckCircle, Activity, Upload, Trash2, Database, Plus, X, ArrowLeft, Users, ChevronRight } from 'lucide-react';
 
 interface DocumentFile {
     id: string;
@@ -13,89 +14,355 @@ interface DocumentFile {
 
 export default function TeacherDashboard() {
     const navigate = useNavigate();
+    
+    // User Context
+    const [user, setUser] = useState<any>(null);
+    const [view, setView] = useState<'courses' | 'detail'>('courses');
+    
+    // Courses State
+    const [courses, setCourses] = useState<any[]>([]);
+    const [selectedCourse, setSelectedCourse] = useState<any>(null);
+    
+    // Course Detail State
+    const [documents, setDocuments] = useState<DocumentFile[]>([]);
     const [isDragging, setIsDragging] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [loading, setLoading] = useState(false);
 
-    // Initial mock state matching the images
-    const [documents, setDocuments] = useState<DocumentFile[]>([
-        {
-            id: '1',
-            title: 'Teoría de Límites - Capítulo 1.pdf',
-            course: 'Cálculo Monovariable',
-            size: '2.4 MB',
-            date: '28/2/2026',
-            status: 'ready'
-        },
-        {
-            id: '2',
-            title: 'Funciones Avanzadas Excel.pdf',
-            course: 'Excel II',
-            size: '5.1 MB',
-            date: '1/3/2026',
-            status: 'ready'
-        },
-        {
-            id: '3',
-            title: 'POO - Introducción.pdf',
-            course: 'Desarrollo II',
-            size: '3.8 MB',
-            date: '2/3/2026',
-            status: 'processing'
+    // Modals
+    const [isCreateCourseModalOpen, setIsCreateCourseModalOpen] = useState(false);
+    const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
+    const [newCourseName, setNewCourseName] = useState('');
+    const [studentCode, setStudentCode] = useState('');
+
+    useEffect(() => {
+        const storedUser = localStorage.getItem('user');
+        if (!storedUser) {
+            navigate('/login');
+            return;
         }
-    ]);
+        const parsed = JSON.parse(storedUser);
+        setUser(parsed);
+        fetchCourses(parsed.id);
+    }, [navigate]);
+
+    const fetchCourses = async (teacherId: string) => {
+        try {
+            const res = await fetch(`http://localhost:3000/api/courses?teacherId=${teacherId}`);
+            if (res.ok) {
+                const data = await res.json();
+                setCourses(data);
+            }
+        } catch (error) {
+            console.error('Error fetching courses', error);
+        }
+    };
+
+    const handleCreateCourse = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+            const res = await fetch('http://localhost:3000/api/courses', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: newCourseName,
+                    description: 'Curso recién creado',
+                    teacherId: user.id
+                })
+            });
+            if (res.ok) {
+                const createdCourse = await res.json();
+                // We need at least one session for resources
+                await fetch('http://localhost:3000/api/sessions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: 'General',
+                        courseId: createdCourse.id,
+                        order: 1
+                    })
+                });
+
+                await fetchCourses(user.id);
+                setIsCreateCourseModalOpen(false);
+                setNewCourseName('');
+            }
+        } catch (error) {
+            alert('Error al crear curso');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const loadCourseDetails = async (course: any) => {
+        setSelectedCourse(course);
+        setView('detail');
+
+        // Extract resources from course sessions
+        let loadedDocs: DocumentFile[] = [];
+        if (course.sessions) {
+            course.sessions.forEach((session: any) => {
+                session.resources.forEach((res: any) => {
+                    loadedDocs.push({
+                        id: res.id,
+                        title: res.title,
+                        course: course.title,
+                        size: 'Desconocido', // Since it's mockup URLs
+                        date: new Date(res.createdAt).toLocaleDateString('es-ES'),
+                        status: 'ready'
+                    });
+                });
+            });
+        }
+        setDocuments(loadedDocs);
+    };
+
+    const handleAddStudent = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+            const res = await fetch(`http://localhost:3000/api/courses/${selectedCourse.id}/enroll`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: studentCode })
+            });
+            
+            const data = await res.json();
+            if (res.ok) {
+                alert('Estudiante matriculado con éxito');
+                setIsAddStudentModalOpen(false);
+                setStudentCode('');
+            } else {
+                alert(data.error || 'No se pudo matricular al estudiante');
+            }
+        } catch (error) {
+            alert('Error al comunicar con el servidor');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDeleteDocument = async (id: string, isProcessing: boolean) => {
+        // Remove locally immediately for snappy UX
+        setDocuments(docs => docs.filter(d => d.id !== id));
+        
+        if (!isProcessing) {
+            await fetch(`http://localhost:3000/api/resources/${id}`, { method: 'DELETE' });
+            // Optionally reload to sync
+            fetchCourses(user.id); 
+        }
+    };
+
+    const handleFileUploadMockup = async (files: FileList | null) => {
+        if (!files || files.length === 0 || !selectedCourse) return;
+        
+        const fileArr = Array.from(files);
+        
+        // 1. Create Local Mock "Processing" States
+        const newLocalDocs: DocumentFile[] = fileArr.map((file, i) => ({
+            id: `temp-${Date.now()}-${i}`,
+            title: file.name,
+            course: selectedCourse.title,
+            size: (file.size / (1024 * 1024)).toFixed(1) + ' MB',
+            date: new Date().toLocaleDateString('es-ES'),
+            status: 'processing'
+        }));
+
+        setDocuments(prev => [...newLocalDocs, ...prev]);
+
+        // We assume the course has at least one session "General" from creation
+        const targetSessionId = selectedCourse.sessions && selectedCourse.sessions.length > 0 
+            ? selectedCourse.sessions[0].id 
+            : null;
+
+        if (!targetSessionId) {
+            alert("El curso no tiene una sesión activa para guardar recursos.");
+            return;
+        }
+
+        // 2. Process each file (Simulated processing delay, but real DB POST)
+        for (let i = 0; i < fileArr.length; i++) {
+            const file = fileArr[i];
+            const tempId = newLocalDocs[i].id;
+            
+            // Artificial delay to show the beautiful "Procesando..." UI
+            const delay = 2000 + Math.random() * 2000;
+            
+            setTimeout(async () => {
+                try {
+                    // REAL BACKEND CALL
+                    const res = await fetch('http://localhost:3000/api/resources', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            title: file.name,
+                            description: 'Documento técnico para IA',
+                            url: `local://fake-url-${Date.now()}`,
+                            type: 'PDF',
+                            sessionId: targetSessionId
+                        })
+                    });
+                    
+                    if (res.ok) {
+                        const createdResource = await res.json();
+                        // Update state to Ready and replace temp ID with Real ID
+                        setDocuments(prev => prev.map(d => 
+                            d.id === tempId ? { 
+                                ...d, 
+                                id: createdResource.id, 
+                                status: 'ready',
+                                date: new Date(createdResource.createdAt).toLocaleDateString('es-ES')
+                            } : d
+                        ));
+                    } else {
+                        // Fail
+                        setDocuments(prev => prev.filter(d => d.id !== tempId));
+                        alert(`Error al procesar el archivo ${file.name}`);
+                    }
+                } catch (e) {
+                    setDocuments(prev => prev.filter(d => d.id !== tempId));
+                }
+            }, delay);
+        }
+    };
 
     const handleLogout = () => {
+        localStorage.removeItem('user');
         navigate('/login');
-    };
-
-    const handleDelete = (id: string) => {
-        setDocuments(docs => docs.filter(d => d.id !== id));
-    };
-
-    const handleFileUpload = (files: FileList | null) => {
-        if (!files || files.length === 0) return;
-
-        const newDocs: DocumentFile[] = Array.from(files).map((file, i) => {
-            const newId = Date.now().toString() + i;
-            return {
-                id: newId,
-                title: file.name,
-                course: 'Curso General', // You can add logic to select course later
-                size: (file.size / (1024 * 1024)).toFixed(1) + ' MB',
-                date: new Date().toLocaleDateString('es-ES'),
-                status: 'processing'
-            };
-        });
-
-        // Add to state
-        setDocuments(prev => [...newDocs, ...prev]);
-
-        // Simulate processing complete after 3 seconds
-        newDocs.forEach(doc => {
-            setTimeout(() => {
-                setDocuments(prev => prev.map(d =>
-                    d.id === doc.id ? { ...d, status: 'ready' } : d
-                ));
-            }, 3000 + Math.random() * 2000); // 3-5 seconds
-        });
-    };
-
-    const handleDrop = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(false);
-        handleFileUpload(e.dataTransfer.files);
     };
 
     const totalDocumentos = documents.length;
     const listosParaIA = documents.filter(d => d.status === 'ready').length;
     const procesando = documents.filter(d => d.status === 'processing').length;
 
+    // ----- VIEW 1: COURSES GRID -----
+    if (view === 'courses') {
+        return (
+            <div className="min-h-screen bg-[#0d0d0f] text-zinc-200 flex font-sans overflow-hidden">
+                <div className="w-20 bg-[#161618] border-r border-zinc-800/50 flex flex-col items-center py-6 gap-6 z-20 shrink-0">
+                    <div className="w-10 h-10 rounded-xl bg-purple-500 flex items-center justify-center font-bold text-white shadow-lg mb-4 text-sm">
+                        {user?.name?.charAt(0) || 'D'}
+                    </div>
+                    <div className="mt-auto">
+                        <button 
+                            onClick={handleLogout}
+                            className="w-12 h-12 rounded-xl flex items-center justify-center text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-all font-light"
+                            title="Cerrar Sesión"
+                        >
+                            <LogOut className="w-6 h-6" strokeWidth={1.5} />
+                        </button>
+                    </div>
+                </div>
+
+                <div className="flex-1 flex flex-col h-screen overflow-y-auto w-full p-10 md:p-14">
+                    <header className="mb-12 flex justify-between items-center">
+                        <div>
+                            <h1 className="text-3xl font-bold text-white mb-2 tracking-tight">Mis Cursos</h1>
+                            <p className="text-zinc-400 font-light text-sm">Selecciona un curso para gestionar su material de IA.</p>
+                        </div>
+                        <button
+                            onClick={() => setIsCreateCourseModalOpen(true)}
+                            className="flex items-center gap-2 bg-purple-500 hover:bg-purple-600 text-white px-5 py-2.5 rounded-xl font-medium transition-colors shadow-lg shadow-purple-500/20"
+                        >
+                            <Plus className="w-5 h-5" />
+                            Crear Curso
+                        </button>
+                    </header>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {courses.length === 0 ? (
+                            <div className="col-span-full text-center py-20 text-zinc-500 bg-[#141416] rounded-2xl border border-zinc-800/50 border-dashed">
+                                Aún no tienes cursos creados. Crea uno para comenzar.
+                            </div>
+                        ) : (
+                            courses.map(course => (
+                                <motion.div
+                                    key={course.id}
+                                    whileHover={{ y: -4 }}
+                                    onClick={() => loadCourseDetails(course)}
+                                    className="bg-[#141416] border border-zinc-800/60 hover:border-purple-500/50 rounded-2xl p-6 cursor-pointer transition-colors group flex flex-col h-48 relative overflow-hidden"
+                                >
+                                    <div className="relative z-10 flex flex-col h-full">
+                                        <div className="w-12 h-12 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center mb-4">
+                                            <GraduationCap className="w-6 h-6" />
+                                        </div>
+                                        <h3 className="text-xl font-bold text-white mb-1 truncate">{course.title}</h3>
+                                        <p className="text-sm text-zinc-500 mt-auto flex items-center gap-2">
+                                            Ingresar al panel <ChevronRight className="w-4 h-4 opacity-0 -ml-2 group-hover:opacity-100 group-hover:ml-0 transition-all text-purple-400" />
+                                        </p>
+                                    </div>
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-bl-full -z-10 group-hover:scale-150 transition-transform duration-500"></div>
+                                </motion.div>
+                            ))
+                        )}
+                    </div>
+                </div>
+
+                {/* Modal Crear Curso */}
+                <AnimatePresence>
+                    {isCreateCourseModalOpen && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.95 }}
+                                className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md shadow-2xl p-6"
+                            >
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-lg font-bold text-white">Nuevo Curso</h3>
+                                    <button onClick={() => setIsCreateCourseModalOpen(false)} className="text-zinc-500 hover:text-white">
+                                        <X className="w-5 h-5" />
+                                    </button>
+                                </div>
+                                <form onSubmit={handleCreateCourse}>
+                                    <div className="mb-6">
+                                        <label className="block text-sm font-medium text-zinc-400 mb-2">Nombre del Curso</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            value={newCourseName}
+                                            onChange={e => setNewCourseName(e.target.value)}
+                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500"
+                                            placeholder="Ej. Cálculo Avanzado"
+                                        />
+                                    </div>
+                                    <button
+                                        type="submit"
+                                        disabled={loading || !newCourseName.trim()}
+                                        className="w-full bg-purple-500 hover:bg-purple-600 disabled:opacity-50 text-white py-3 rounded-xl font-bold transition-colors shadow-lg shadow-purple-500/20"
+                                    >
+                                        {loading ? 'Creando...' : 'Crear Curso'}
+                                    </button>
+                                </form>
+                            </motion.div>
+                        </div>
+                    )}
+                </AnimatePresence>
+            </div>
+        );
+    }
+
+    // ----- VIEW 2: COURSE DETAIL / PANEL DOCENTE -----
     return (
         <div className="min-h-screen bg-[#0d0d0f] text-zinc-200 flex font-sans overflow-hidden">
             {/* Minimalist Sidebar */}
             <div className="w-20 bg-[#161618] border-r border-zinc-800/50 flex flex-col items-center py-6 gap-6 z-20 shrink-0">
-                <div className="w-10 h-10 rounded-xl bg-indigo-500 flex items-center justify-center font-bold text-white shadow-lg mb-4 text-sm">
-                    I
+                <div className="w-10 h-10 rounded-xl bg-purple-500 flex items-center justify-center font-bold text-white shadow-lg mb-4 text-sm">
+                    {user?.name?.charAt(0) || 'D'}
+                </div>
+
+                <div className="relative group">
+                    <button 
+                        onClick={() => {
+                            setView('courses');
+                            fetchCourses(user.id);
+                        }}
+                        className="w-12 h-12 rounded-xl flex items-center justify-center transition-all bg-zinc-800/50 hover:bg-zinc-800 text-zinc-400 hover:text-white"
+                        title="Volver a Cursos"
+                    >
+                        <ArrowLeft className="w-6 h-6" />
+                    </button>
                 </div>
 
                 <div className="relative">
@@ -105,7 +372,7 @@ export default function TeacherDashboard() {
                 </div>
 
                 <div className="mt-auto">
-                    <button
+                    <button 
                         onClick={handleLogout}
                         className="w-12 h-12 rounded-xl flex items-center justify-center text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-all font-light"
                         title="Cerrar Sesión"
@@ -119,14 +386,24 @@ export default function TeacherDashboard() {
             <div className="flex-1 flex flex-col h-screen overflow-y-auto w-full">
                 <main className="p-8 md:p-12 max-w-6xl mx-auto w-full">
                     {/* Header */}
-                    <header className="mb-10 flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
-                            <GraduationCap className="w-6 h-6" />
+                    <header className="mb-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                                <GraduationCap className="w-6 h-6" />
+                            </div>
+                            <div>
+                                <h1 className="text-3xl font-bold text-white mb-1 tracking-tight">{selectedCourse?.title || 'Panel Docente'}</h1>
+                                <p className="text-zinc-400 font-light text-[13px]">Gestiona la documentación técnica que alimenta la IA de esta materia</p>
+                            </div>
                         </div>
-                        <div>
-                            <h1 className="text-3xl font-bold text-white mb-1 tracking-tight">Panel Docente</h1>
-                            <p className="text-zinc-400 font-light text-[13px]">Gestiona la documentación técnica que alimenta la IA de cada materia</p>
-                        </div>
+                        
+                        <button
+                            onClick={() => setIsAddStudentModalOpen(true)}
+                            className="bg-zinc-800 hover:bg-zinc-700 text-white px-5 py-2.5 rounded-xl font-medium transition-colors flex items-center gap-2 border border-zinc-700"
+                        >
+                            <Users className="w-4 h-4" />
+                            Añadir Estudiante
+                        </button>
                     </header>
 
                     {/* Stats Grid */}
@@ -138,7 +415,7 @@ export default function TeacherDashboard() {
                             </div>
                             <FileText className="w-8 h-8 text-cyan-400" />
                         </div>
-
+                        
                         <div className="bg-[#141416] border border-zinc-800/60 rounded-2xl p-6 flex items-center justify-between shadow-lg">
                             <div>
                                 <p className="text-[13px] text-zinc-400 mb-1 font-medium">Listos para IA</p>
@@ -157,28 +434,33 @@ export default function TeacherDashboard() {
                     </div>
 
                     {/* Upload Zone */}
-                    <div
-                        className={`mb-12 border-2 border-dashed rounded-3xl p-12 flex flex-col items-center justify-center transition-all bg-[#141416]/50 ${isDragging ? 'border-purple-500 bg-purple-500/5' : 'border-zinc-800/80 hover:border-zinc-700'
-                            }`}
+                    <div 
+                        className={`mb-12 border-2 border-dashed rounded-3xl p-12 flex flex-col items-center justify-center transition-all bg-[#141416]/50 ${
+                            isDragging ? 'border-purple-500 bg-purple-500/5' : 'border-zinc-800/80 hover:border-zinc-700'
+                        }`}
                         onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                         onDragLeave={() => setIsDragging(false)}
-                        onDrop={handleDrop}
+                        onDrop={(e) => {
+                            e.preventDefault();
+                            setIsDragging(false);
+                            handleFileUploadMockup(e.dataTransfer.files);
+                        }}
                     >
                         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-400 to-purple-600 flex items-center justify-center text-white mb-6 shadow-xl shadow-purple-500/20">
                             <Upload className="w-7 h-7" />
                         </div>
                         <h3 className="text-xl font-bold text-white mb-2">Arrastra archivos aquí</h3>
                         <p className="text-zinc-400 text-sm mb-6">o haz clic para seleccionar documentación técnica</p>
-
-                        <input
-                            type="file"
-                            multiple
-                            className="hidden"
+                        
+                        <input 
+                            type="file" 
+                            multiple 
+                            className="hidden" 
                             ref={fileInputRef}
-                            onChange={(e) => handleFileUpload(e.target.files)}
+                            onChange={(e) => handleFileUploadMockup(e.target.files)}
                             accept=".pdf,.doc,.docx,.txt"
                         />
-                        <button
+                        <button 
                             onClick={() => fileInputRef.current?.click()}
                             className="bg-gradient-to-r from-cyan-400 to-purple-600 text-white px-8 py-3 rounded-xl font-medium hover:from-cyan-500 hover:to-purple-700 transition-all shadow-lg shadow-purple-500/25"
                         >
@@ -191,9 +473,9 @@ export default function TeacherDashboard() {
                     <div>
                         <h2 className="text-xl font-bold text-white mb-6">Documentos Cargados</h2>
                         <div className="space-y-4">
-
+                            
                             {documents.length === 0 ? (
-                                <p className="text-zinc-500 text-center py-8">No hay documentos cargados aún.</p>
+                                <p className="text-zinc-500 text-center py-8">No hay documentos cargados aún en este curso.</p>
                             ) : documents.map((doc) => (
                                 <div key={doc.id} className="bg-[#141416] border border-zinc-800/60 rounded-2xl p-5 flex items-center gap-5 relative overflow-hidden group hover:border-purple-500/30 transition-colors">
                                     <div className="w-12 h-12 rounded-xl bg-zinc-800/50 flex items-center justify-center text-cyan-400 shrink-0">
@@ -217,14 +499,14 @@ export default function TeacherDashboard() {
                                                 Procesando...
                                             </div>
                                         )}
-                                        <button
-                                            onClick={() => handleDelete(doc.id)}
+                                        <button 
+                                            onClick={() => handleDeleteDocument(doc.id, doc.status === 'processing')}
                                             className="w-10 h-10 rounded-xl bg-zinc-800/50 hover:bg-red-500 text-zinc-500 hover:text-white flex items-center justify-center transition-colors"
+                                            title="Eliminar"
                                         >
                                             <Trash2 className="w-5 h-5" />
                                         </button>
                                     </div>
-                                    {/* Progress Bar showing processing state at bottom border of card */}
                                     {doc.status === 'processing' && (
                                         <div className="absolute bottom-0 left-0 h-[3px] w-full bg-zinc-800">
                                             <div className="h-full w-2/3 bg-gradient-to-r from-cyan-400 to-purple-600 animate-pulse"></div>
@@ -237,6 +519,49 @@ export default function TeacherDashboard() {
                     </div>
                 </main>
             </div>
+
+            {/* Modal Añadir Estudiante */}
+            <AnimatePresence>
+                {isAddStudentModalOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-sm shadow-2xl p-6"
+                        >
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="text-lg font-bold text-white">Añadir Estudiante</h3>
+                                <button onClick={() => setIsAddStudentModalOpen(false)} className="text-zinc-500 hover:text-white">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+                            <form onSubmit={handleAddStudent}>
+                                <div className="mb-6">
+                                    <label className="block text-sm font-medium text-zinc-400 mb-2">Código del Estudiante</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        value={studentCode}
+                                        onChange={e => setStudentCode(e.target.value.toUpperCase())}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-cyan-500 font-mono text-center tracking-widest text-lg transition-colors"
+                                        placeholder="E1234"
+                                    />
+                                    <p className="text-xs text-zinc-500 mt-2 text-center">Asegúrate de que el código sea correcto</p>
+                                </div>
+                                <button
+                                    type="submit"
+                                    disabled={loading || !studentCode.trim()}
+                                    className="w-full bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white py-3 rounded-xl font-bold transition-colors shadow-lg shadow-cyan-500/20 flex justify-center items-center gap-2"
+                                >
+                                    <Users className="w-5 h-5" />
+                                    {loading ? 'Matriculando...' : 'Matricular'}
+                                </button>
+                            </form>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }

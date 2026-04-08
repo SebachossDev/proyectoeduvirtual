@@ -33,7 +33,7 @@ model Course {
   description String?
   
   teacherId   String
-  teacher     User     @relation("TeacherCourses", fields: [teacherId], references: [id])
+  teacher     User     @relation("TeacherCourses", fields: [teacherId], references: [id], onDelete: Cascade)
 
   sessions    Session[]
   enrollments Enrollment[]
@@ -46,7 +46,7 @@ model Enrollment {
   id        String   @id @default(uuid())
   
   studentId String
-  student   User     @relation(fields: [studentId], references: [id])
+  student   User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
   
   courseId  String
   course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
@@ -95,7 +95,7 @@ model BackpackItem {
   id          String   @id @default(uuid())
   
   studentId   String
-  student     User     @relation(fields: [studentId], references: [id])
+  student     User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
   
   resourceId  String
   resource    Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
