@@ -8,6 +8,29 @@ const prisma = new PrismaClient();
 app.use(cors());
 app.use(express.json());
 
+// ----- SSE SETUP FOR REAL-TIME -----
+const clients = new Set<express.Response>();
+
+app.get('/api/events', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    clients.add(res);
+
+    req.on('close', () => {
+        clients.delete(res);
+    });
+});
+
+const sendEventToClients = (eventData: any) => {
+    clients.forEach(client => {
+        client.write(`data: ${JSON.stringify(eventData)}\n\n`);
+    });
+};
+// -----------------------------------
+
 // 1. Auth Login
 app.post('/api/login', async (req, res) => {
     const code = req.body.code?.trim();
@@ -136,7 +159,7 @@ app.get('/api/courses/:courseId/participants', async (req, res) => {
     res.json(enrollments);
 });
 
-// NUEVO: Añadir estudiante por código
+// Añadir estudiante por código
 app.post('/api/courses/:courseId/enroll', async (req, res) => {
     const { courseId } = req.params;
     const code = req.body.code?.trim();
@@ -159,6 +182,38 @@ app.post('/api/courses/:courseId/enroll', async (req, res) => {
         res.status(400).json({ error: 'Error al matricular, es posible que el estudiante ya esté en el curso' });
     }
 });
+
+// NUEVO: Obtener los cursos matriculados de un estudiante específico (para el Student Dashboard)
+app.get('/api/students/:studentId/courses', async (req, res) => {
+    const { studentId } = req.params;
+    try {
+        const enrollments = await prisma.enrollment.findMany({
+            where: { studentId },
+            include: {
+                course: {
+                    include: {
+                        teacher: true,
+                        sessions: {
+                            include: { resources: true }
+                        }
+                    }
+                }
+            },
+            orderBy: { enrolledAt: 'desc' }
+        });
+        
+        // Mapeamos para enviar un arreglo de cursos en lugar de enrollments crudos
+        const enrolledCourses = enrollments.map(e => ({
+            ...e.course,
+            progress: e.grade ? Math.min(100, Math.round((e.grade / 10) * 100)) : 0, // Mocking progress based on grade or 0
+        }));
+        
+        res.json(enrolledCourses);
+    } catch (error: any) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
 
 app.put('/api/enrollments/:enrollmentId/grade', async (req, res) => {
     const { enrollmentId } = req.params;
@@ -201,8 +256,19 @@ app.post('/api/resources', async (req, res) => {
     const { title, description, url, type, sessionId } = req.body;
     try {
         const resource = await prisma.resource.create({
-            data: { title, description, url, type, sessionId }
+            data: { title, description, url, type, sessionId },
+            include: { session: true } // Need session to know which course this belongs to
         });
+
+        // EMITIR EVENTO EN TIEMPO REAL (SSE) a los estudiantes
+        sendEventToClients({
+            type: 'NEW_RESOURCE',
+            payload: {
+                resource,
+                courseId: resource.session.courseId
+            }
+        });
+
         res.json(resource);
     } catch (error: any) {
         console.error("POST /api/resources ERROR:", error);
