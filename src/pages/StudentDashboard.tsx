@@ -25,6 +25,7 @@ export default function StudentDashboard() {
     const [backpackSearch, setBackpackSearch] = useState('');
     const [noteDraft, setNoteDraft] = useState('');
     const [isWritingNote, setIsWritingNote] = useState(false);
+    const [viewingItem, setViewingItem] = useState<any>(null);
 
     // Inside Course View State
     const [viewTab, setViewTab] = useState<'materials' | 'chat'>('materials');
@@ -438,9 +439,17 @@ export default function StudentDashboard() {
                                                         >
                                                             <Backpack className="w-5 h-5" />
                                                         </button>
-                                                        <button className="w-10 h-10 rounded-xl bg-zinc-800 hover:bg-cyan-500/20 text-zinc-400 hover:text-cyan-400 flex items-center justify-center transition-colors">
+                                                        <a 
+                                                            href={res.url} 
+                                                            target="_blank" 
+                                                            rel="noopener noreferrer" 
+                                                            download 
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="w-10 h-10 rounded-xl bg-zinc-800 hover:bg-cyan-500/20 text-zinc-400 hover:text-cyan-400 flex items-center justify-center transition-colors"
+                                                            title="Descargar material"
+                                                        >
                                                             <Download className="w-5 h-5" />
-                                                        </button>
+                                                        </a>
                                                     </div>
                                                 </motion.div>
                                             ))}
@@ -510,7 +519,7 @@ export default function StudentDashboard() {
 
             {/* Virtual Backpack Sidebar Drawer */}
             <AnimatePresence>
-                {isBackpackOpen && !selectedCourse && (
+                {isBackpackOpen && (
                     <motion.div
                         initial={{ x: 350, opacity: 0 }}
                         animate={{ x: 0, opacity: 1 }}
@@ -585,8 +594,8 @@ export default function StudentDashboard() {
                                 {backpackItems.length === 0 ? (
                                     <p className="text-center text-zinc-600 text-sm mt-10">Mochila vacía. Guarda apuntes, insights o documentos aquí.</p>
                                 ) : (
-                                    backpackItems.filter(i => i.title.toLowerCase().includes(backpackSearch.toLowerCase()) || i.content?.toLowerCase().includes(backpackSearch.toLowerCase())).map((item) => (
-                                        <div key={item.id} className="bg-[#1a1a1c] border border-zinc-800/80 rounded-2xl p-4 cursor-pointer hover:border-purple-500/30 transition-all group relative">
+                                    backpackItems.filter(i => (i.title || '').toLowerCase().includes(backpackSearch.toLowerCase()) || (i.content || '').toLowerCase().includes(backpackSearch.toLowerCase())).map((item) => (
+                                        <div key={item.id} onClick={() => setViewingItem(item)} className="bg-[#1a1a1c] border border-zinc-800/80 rounded-2xl p-4 cursor-pointer hover:border-purple-500/30 transition-all group relative">
                                             <div className="flex items-start gap-4">
                                                 <div className="w-10 h-10 rounded-xl bg-zinc-800/80 flex items-center justify-center text-purple-400 shrink-0 group-hover:bg-purple-500/10 transition-all">
                                                     {item.type === 'DOCUMENT' ? <FileText className="w-5 h-5"/> : item.type === 'AI_INSIGHT' ? <Bot className="w-5 h-5"/> : <BookOpen className="w-5 h-5" />}
@@ -609,6 +618,93 @@ export default function StudentDashboard() {
                                 )}
                             </div>
                         </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Viewing Item Modal */}
+            <AnimatePresence>
+                {viewingItem && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+                        onClick={() => setViewingItem(null)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="bg-[#161618] border border-zinc-800/80 rounded-2xl p-6 md:p-8 max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+                        >
+                            <div className="flex justify-between items-start mb-6 shrink-0">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center">
+                                        {viewingItem.type === 'DOCUMENT' ? <FileText className="w-6 h-6"/> : viewingItem.type === 'AI_INSIGHT' ? <Bot className="w-6 h-6"/> : <BookOpen className="w-6 h-6" />}
+                                    </div>
+                                    <div>
+                                        <h2 className="text-xl font-bold text-white leading-tight">{viewingItem.title}</h2>
+                                        <p className="text-sm text-zinc-400 mt-1">
+                                            {new Date(viewingItem.savedAt).toLocaleString('es-ES')} {viewingItem.course ? `• ${viewingItem.course.title}` : ''}
+                                        </p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setViewingItem(null)} className="text-zinc-500 hover:text-white p-2 rounded-lg hover:bg-zinc-800 transition-colors">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+                            
+                            <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                                                {viewingItem.content && (
+                                                    <div className="text-zinc-300 text-[15px] leading-relaxed whitespace-pre-wrap mb-4">
+                                                        {viewingItem.content}
+                                                    </div>
+                                                )}
+                                                
+                                                {viewingItem.resource?.url && (
+                                                    <div className="w-full h-[400px] mt-4 border border-zinc-800/50 rounded-xl overflow-hidden bg-zinc-900/50 relative group">
+                                                        {viewingItem.resource.type?.toUpperCase() === 'VIDEO' || viewingItem.resource.url.includes('mp4') ? (
+                                                            <video src={viewingItem.resource.url} controls className="w-full h-full object-contain" />
+                                                        ) : (
+                                                            <iframe src={viewingItem.resource.url} className="w-full h-full border-none bg-white/5" title={viewingItem.title} />
+                                                        )}
+                                                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 text-xs px-3 py-1.5 rounded-lg text-zinc-300 pointer-events-none backdrop-blur-md">Vista Previa</div>
+                                                    </div>
+                                                )}
+
+                                                {!viewingItem.content && !viewingItem.resource?.url && (
+                                                    <div className="py-6 text-center text-zinc-500 italic">
+                                                        Este elemento no tiene contenido detallado para visualizar.
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {viewingItem.resource?.url && (
+                                                <div className="mt-6 pt-4 border-t border-zinc-800/50 shrink-0 flex gap-3">
+                                                    <a 
+                                                        href={viewingItem.resource.url} 
+                                                        target="_blank" 
+                                                        rel="noopener noreferrer"
+                                                        className="flex-1 py-2.5 px-4 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 text-sm"
+                                                    >
+                                                        <LinkIcon className="w-4 h-4" />
+                                                        Ver Pestaña Completa
+                                                    </a>
+                                                    <a 
+                                                        href={viewingItem.resource.url} 
+                                                        target="_blank" 
+                                                        download
+                                                        rel="noopener noreferrer"
+                                                        className="flex-1 py-2.5 px-4 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2 shadow-lg shadow-purple-500/20 text-sm"
+                                                    >
+                                                        <Download className="w-4 h-4" />
+                                                        Descargar Archivo
+                                                    </a>
+                                                </div>
+                                            )}
+                        </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>
