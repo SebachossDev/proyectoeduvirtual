@@ -20,6 +20,11 @@ export default function StudentDashboard() {
     const [selectedCourse, setSelectedCourse] = useState<any>(null);
     const selectedCourseRef = useRef<any>(null); // To access within SSE without reconnecting
     const [isBackpackOpen, setIsBackpackOpen] = useState(false);
+    const [backpackItems, setBackpackItems] = useState<any[]>([]);
+    const [backpackFilter, setBackpackFilter] = useState<'ALL' | 'DOCUMENT' | 'AI_INSIGHT' | 'NOTE'>('ALL');
+    const [backpackSearch, setBackpackSearch] = useState('');
+    const [noteDraft, setNoteDraft] = useState('');
+    const [isWritingNote, setIsWritingNote] = useState(false);
 
     // Inside Course View State
     const [viewTab, setViewTab] = useState<'materials' | 'chat'>('materials');
@@ -143,6 +148,66 @@ export default function StudentDashboard() {
             handleSelectCourse(targetCourse);
         }
         setToast(null);
+    };
+
+    const fetchBackpack = async () => {
+        if (!user) return;
+        try {
+            const res = await fetch(`http://localhost:3000/api/backpack/${user.id}?type=${backpackFilter}`);
+            if (res.ok) {
+                const data = await res.json();
+                setBackpackItems(data);
+            }
+        } catch (error) {
+            console.error('Error fetching backpack', error);
+        }
+    };
+
+    useEffect(() => {
+        if (isBackpackOpen) {
+            fetchBackpack();
+        }
+    }, [isBackpackOpen, backpackFilter]);
+
+    const handleSaveToBackpack = async (type: string, title: string, content?: string, resourceId?: string) => {
+        if (!user) return;
+        try {
+            const body = {
+                studentId: user.id,
+                type,
+                title,
+                content,
+                courseId: selectedCourse?.id,
+                resourceId
+            };
+            const res = await fetch('http://localhost:3000/api/backpack', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            if (res.ok) {
+                if (isBackpackOpen) fetchBackpack();
+                alert('¡Guardado en tu Mochila Virtual!');
+            }
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
+    const handleSaveNote = () => {
+        if (!noteDraft.trim()) return;
+        handleSaveToBackpack('NOTE', noteDraft.substring(0, 30) + '...', noteDraft);
+        setNoteDraft('');
+        setIsWritingNote(false);
+    };
+
+    const handleDeleteBackpackItem = async (itemId: string) => {
+        try {
+            const res = await fetch(`http://localhost:3000/api/backpack/${itemId}`, { method: 'DELETE' });
+            if (res.ok) fetchBackpack();
+        } catch (error) {
+            console.error(error);
+        }
     };
 
     return (
@@ -365,9 +430,18 @@ export default function StudentDashboard() {
                                                             </p>
                                                         </div>
                                                     </div>
-                                                    <button className="w-10 h-10 rounded-xl bg-zinc-800 hover:bg-cyan-500/20 text-zinc-400 hover:text-cyan-400 flex flex-col items-center justify-center transition-colors">
-                                                        <Download className="w-5 h-5" />
-                                                    </button>
+                                                    <div className="flex items-center gap-2">
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); handleSaveToBackpack('DOCUMENT', res.title, undefined, res.id); }}
+                                                            className="w-10 h-10 rounded-xl bg-zinc-800/80 hover:bg-purple-500/20 text-zinc-400 hover:text-purple-400 flex items-center justify-center transition-colors shadow-sm"
+                                                            title="Guardar en Mochila"
+                                                        >
+                                                            <Backpack className="w-5 h-5" />
+                                                        </button>
+                                                        <button className="w-10 h-10 rounded-xl bg-zinc-800 hover:bg-cyan-500/20 text-zinc-400 hover:text-cyan-400 flex items-center justify-center transition-colors">
+                                                            <Download className="w-5 h-5" />
+                                                        </button>
+                                                    </div>
                                                 </motion.div>
                                             ))}
                                         </div>
@@ -395,10 +469,17 @@ export default function StudentDashboard() {
                                         <div className="w-10 h-10 rounded-xl bg-blue-500 flex items-center justify-center text-white shrink-0 mt-2 shadow-lg shadow-blue-500/20">
                                             <Bot className="w-5 h-5" />
                                         </div>
-                                        <div>
+                                        <div className="group relative pr-14">
                                             <div className="bg-[#141416] border border-zinc-800/80 rounded-2xl rounded-tl-sm p-5 text-zinc-300 text-sm leading-relaxed shadow-sm">
                                                 ¡Hola! Soy tu asistente de IA especializado en {selectedCourse.title}. Estoy leyendo todo el material que el profesor acaba de subir. ¿En qué módulo te ayudo hoy?
                                             </div>
+                                            <button 
+                                                onClick={() => handleSaveToBackpack('AI_INSIGHT', `Respuesta IA en ${selectedCourse.title}`, `¡Hola! Soy tu asistente de IA especializado en ${selectedCourse.title}. Estoy leyendo todo el material que el profesor acaba de subir. ¿En qué módulo te ayudo hoy?`)}
+                                                className="absolute right-0 top-4 opacity-0 group-hover:opacity-100 p-2 bg-[#1a1a1c] border border-purple-500/30 rounded-xl text-purple-400 hover:bg-purple-500/20 transition-all shadow-md"
+                                                title="Guardar Insight"
+                                            >
+                                                <Backpack className="w-4 h-4" />
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
@@ -435,40 +516,97 @@ export default function StudentDashboard() {
                         animate={{ x: 0, opacity: 1 }}
                         exit={{ x: 350, opacity: 0 }}
                         transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                        className="fixed right-0 top-0 bottom-0 w-[350px] bg-[#161618] border-l border-zinc-800/50 flex flex-col shadow-2xl z-20"
+                        className="fixed right-0 top-0 bottom-0 w-[420px] bg-[#161618] border-l border-zinc-800/50 flex flex-col shadow-2xl z-20"
                     >
-                        <header className="p-6 border-b border-zinc-800/50 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <div className="text-purple-400">
-                                    <Backpack className="w-5 h-5" />
+                        <header className="p-6 border-b border-zinc-800/50">
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="text-purple-400">
+                                        <Backpack className="w-5 h-5" />
+                                    </div>
+                                    <h3 className="font-bold text-white text-lg">Mochila Virtual</h3>
                                 </div>
-                                <h3 className="font-bold text-white">Mochila Virtual</h3>
+                                <button onClick={() => setIsBackpackOpen(false)} className="text-zinc-500 hover:text-white transition-colors">
+                                    <X className="w-5 h-5" />
+                                </button>
                             </div>
-                            <button onClick={() => setIsBackpackOpen(false)} className="text-zinc-500 hover:text-white transition-colors">
-                                <X className="w-5 h-5" />
-                            </button>
+
+                            {/* Global Search */}
+                            <div className="relative mb-4">
+                                <input
+                                    type="text"
+                                    placeholder="Buscar en tu mochila..."
+                                    value={backpackSearch}
+                                    onChange={(e) => setBackpackSearch(e.target.value)}
+                                    className="w-full bg-[#1a1a1c] border border-zinc-800 rounded-xl py-2.5 pl-4 pr-10 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-purple-500/50 transition-all"
+                                />
+                            </div>
+
+                            {/* Filter Chips */}
+                            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                                {['ALL', 'DOCUMENT', 'AI_INSIGHT', 'NOTE'].map((filterType) => (
+                                    <button
+                                        key={filterType}
+                                        onClick={() => setBackpackFilter(filterType as any)}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${backpackFilter === filterType ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-[#1a1a1c] text-zinc-500 border border-zinc-800 hover:text-zinc-300'}`}
+                                    >
+                                        {filterType === 'ALL' ? 'Todos' : filterType === 'DOCUMENT' ? '📚 Docs' : filterType === 'AI_INSIGHT' ? '🧠 Insights IA' : '📝 Notas'}
+                                    </button>
+                                ))}
+                            </div>
                         </header>
 
-                        <div className="p-6 flex-1 overflow-y-auto">
-                            <p className="text-[13px] text-zinc-400 mb-6 font-light leading-relaxed">
-                                Recursos transversales guardados
-                            </p>
-
-                            <div className="space-y-3">
-                                {[
-                                    { icon: FileText, title: 'Guía de Estudio Avanzado', type: 'Document' },
-                                    { icon: Video, title: 'Técnicas de Aprendizaje', type: 'Video' }
-                                ].map((item, i) => (
-                                    <div key={i} className="bg-[#1a1a1c] border border-zinc-800/80 rounded-2xl p-4 flex items-center gap-4 cursor-pointer hover:border-purple-500/30 transition-all group">
-                                        <div className="w-10 h-10 rounded-xl bg-zinc-800/80 flex items-center justify-center text-purple-400 shrink-0 group-hover:bg-purple-500/10 transition-all">
-                                            <item.icon className="w-5 h-5" />
-                                        </div>
-                                        <div>
-                                            <h4 className="text-[13px] font-semibold text-zinc-200 group-hover:text-white transition-colors leading-tight">{item.title}</h4>
-                                            <p className="text-[11px] text-zinc-500 mt-1 font-medium">{item.type}</p>
+                        <div className="p-6 flex-1 overflow-y-auto bg-[#0d0d0f]/50">
+                            {/* Create Note Inline */}
+                            <div className="mb-6">
+                                {isWritingNote ? (
+                                    <div className="bg-[#1a1a1c] border border-purple-500/30 rounded-xl p-3 shadow-lg">
+                                        <textarea
+                                            value={noteDraft}
+                                            onChange={(e) => setNoteDraft(e.target.value)}
+                                            placeholder="Escribe tu apunte aquí (Markdown soportado)..."
+                                            className="w-full bg-transparent text-sm text-zinc-300 focus:outline-none resize-none h-24 placeholder:text-zinc-600 mb-2"
+                                            autoFocus
+                                        />
+                                        <div className="flex justify-end gap-2">
+                                            <button onClick={() => { setIsWritingNote(false); setNoteDraft(''); }} className="px-3 py-1.5 text-xs font-medium text-zinc-500 hover:text-white transition-colors">Cancelar</button>
+                                            <button onClick={handleSaveNote} className="px-3 py-1.5 text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors">Guardar Nota</button>
                                         </div>
                                     </div>
-                                ))}
+                                ) : (
+                                    <button onClick={() => setIsWritingNote(true)} className="w-full border border-dashed border-zinc-800 hover:border-purple-500/50 rounded-xl p-3 flex items-center justify-center gap-2 text-zinc-500 hover:text-purple-400 text-sm font-medium transition-all">
+                                        <Sparkles className="w-4 h-4" /> Nueva Nota Personal
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Feed de Mochila */}
+                            <div className="space-y-3">
+                                {backpackItems.length === 0 ? (
+                                    <p className="text-center text-zinc-600 text-sm mt-10">Mochila vacía. Guarda apuntes, insights o documentos aquí.</p>
+                                ) : (
+                                    backpackItems.filter(i => i.title.toLowerCase().includes(backpackSearch.toLowerCase()) || i.content?.toLowerCase().includes(backpackSearch.toLowerCase())).map((item) => (
+                                        <div key={item.id} className="bg-[#1a1a1c] border border-zinc-800/80 rounded-2xl p-4 cursor-pointer hover:border-purple-500/30 transition-all group relative">
+                                            <div className="flex items-start gap-4">
+                                                <div className="w-10 h-10 rounded-xl bg-zinc-800/80 flex items-center justify-center text-purple-400 shrink-0 group-hover:bg-purple-500/10 transition-all">
+                                                    {item.type === 'DOCUMENT' ? <FileText className="w-5 h-5"/> : item.type === 'AI_INSIGHT' ? <Bot className="w-5 h-5"/> : <BookOpen className="w-5 h-5" />}
+                                                </div>
+                                                <div className="flex-1 min-w-0 pr-6">
+                                                    <h4 className="text-[13px] font-semibold text-zinc-200 group-hover:text-white transition-colors leading-tight truncate">{item.title}</h4>
+                                                    {item.content && <p className="text-[11px] text-zinc-400 mt-1 line-clamp-2 leading-relaxed">{item.content}</p>}
+                                                    <p className="text-[10px] text-purple-400/60 mt-2 font-medium">{new Date(item.savedAt).toLocaleDateString('es-ES')} {item.course ? `• ${item.course.title}` : ''}</p>
+                                                </div>
+                                            </div>
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); handleDeleteBackpackItem(item.id); }}
+                                                className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 hover:bg-zinc-800 p-1.5 rounded-lg text-zinc-500 hover:text-red-400 transition-all"
+                                                title="Eliminar de la mochila"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
                             </div>
                         </div>
                     </motion.div>

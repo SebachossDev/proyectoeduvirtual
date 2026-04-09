@@ -334,25 +334,48 @@ app.delete('/api/resources/:id', async (req, res) => {
     }
 });
 
-// 5. Mochila Virtual (Estudiante guarda recursos)
+// 5. Mochila Virtual (Estudiante guarda recursos, notas, e insights)
 app.get('/api/backpack/:studentId', async (req, res) => {
     const { studentId } = req.params;
-    const items = await prisma.backpackItem.findMany({
-        where: { studentId },
-        include: { resource: true }
-    });
-    res.json(items);
+    const { type, courseId } = req.query;
+    
+    // Configurar filtros dinámicamente
+    let whereClause: any = { studentId };
+    if (type && type !== 'ALL') whereClause.type = type;
+    if (courseId) whereClause.courseId = courseId;
+
+    try {
+        const items = await prisma.backpackItem.findMany({
+            where: whereClause,
+            include: { resource: true, course: true },
+            orderBy: { savedAt: 'desc' }
+        });
+        res.json(items);
+    } catch (error) {
+        res.status(500).json({ error: 'Error fetching backpack' });
+    }
 });
 
 app.post('/api/backpack', async (req, res) => {
-    const { studentId, resourceId } = req.body;
+    const { studentId, type, title, content, courseId, resourceId, tags } = req.body;
     try {
         const item = await prisma.backpackItem.create({
-            data: { studentId, resourceId }
+            data: { studentId, type, title, content, courseId, resourceId, tags }
         });
         res.json(item);
     } catch (error: any) {
-        res.status(400).json({ error: 'Error al guardar (ya está en la mochila o IDs inválidos)' });
+        console.error(error);
+        res.status(400).json({ error: 'Error al agregar a la mochila' });
+    }
+});
+
+app.delete('/api/backpack/:itemId', async (req, res) => {
+    const { itemId } = req.params;
+    try {
+        await prisma.backpackItem.delete({ where: { id: itemId } });
+        res.json({ success: true });
+    } catch (error: any) {
+        res.status(400).json({ error: 'Error al eliminar item de la mochila' });
     }
 });
 

@@ -37,6 +37,7 @@ model Course {
 
   sessions    Session[]
   enrollments Enrollment[]
+  backpackItems BackpackItem[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -94,15 +95,20 @@ model Resource {
 // Representa un recurso guardado por un estudiante en su "Mochila"
 model BackpackItem {
   id          String   @id @default(uuid())
+  type        String   // Ej: "DOCUMENT", "AI_INSIGHT", "NOTE"
+  title       String
+  content     String?
+  tags        String?
   
   studentId   String
   student     User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
   
-  resourceId  String
-  resource    Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  courseId    String?
+  course      Course?  @relation(fields: [courseId], references: [id], onDelete: SetNull)
+
+  resourceId  String?
+  resource    Resource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
   
   savedAt     DateTime @default(now())
-
-  // Un estudiante no puede guardar el mismo recurso dos veces
-  @@unique([studentId, resourceId])
+  updatedAt   DateTime @updatedAt
 }
