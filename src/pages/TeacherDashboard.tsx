@@ -19,6 +19,9 @@ export default function TeacherDashboard() {
     const [user, setUser] = useState<any>(null);
     const [view, setView] = useState<'courses' | 'detail'>('courses');
     
+    const [detailTab, setDetailTab] = useState<'database' | 'students'>('database');
+    const [courseStudents, setCourseStudents] = useState<any[]>([]);
+    
     // Courses State
     const [courses, setCourses] = useState<any[]>([]);
     const [selectedCourse, setSelectedCourse] = useState<any>(null);
@@ -98,6 +101,9 @@ export default function TeacherDashboard() {
     const loadCourseDetails = async (course: any) => {
         setSelectedCourse(course);
         setView('detail');
+        setDetailTab('database');
+
+        fetchCourseStudents(course.id);
 
         // Extract resources from course sessions
         let loadedDocs: DocumentFile[] = [];
@@ -118,6 +124,34 @@ export default function TeacherDashboard() {
         setDocuments(loadedDocs);
     };
 
+    const fetchCourseStudents = async (courseId: string) => {
+        try {
+            const res = await fetch(`http://localhost:3000/api/courses/${courseId}/participants`);
+            if (res.ok) {
+                const data = await res.json();
+                setCourseStudents(data);
+            }
+        } catch (error) {
+            console.error('Error fetching students', error);
+        }
+    };
+
+    const handleRemoveStudent = async (enrollmentId: string) => {
+        if (!confirm('¿Estás seguro de que deseas eliminar a este estudiante del curso?')) return;
+        try {
+            const res = await fetch(`http://localhost:3000/api/enrollments/${enrollmentId}`, {
+                method: 'DELETE'
+            });
+            if (res.ok) {
+                setCourseStudents(prev => prev.filter(e => e.id !== enrollmentId));
+            } else {
+                alert('No se pudo eliminar al estudiante');
+            }
+        } catch (error) {
+            alert('Error al comunicar con el servidor');
+        }
+    };
+
     const handleAddStudent = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
@@ -133,6 +167,7 @@ export default function TeacherDashboard() {
                 alert('Estudiante matriculado con éxito');
                 setIsAddStudentModalOpen(false);
                 setStudentCode('');
+                fetchCourseStudents(selectedCourse.id);
             } else {
                 alert(data.error || 'No se pudo matricular al estudiante');
             }
@@ -365,9 +400,21 @@ export default function TeacherDashboard() {
                     </button>
                 </div>
 
-                <div className="relative">
-                    <button className="w-12 h-12 rounded-xl flex items-center justify-center transition-all bg-teal-500/20 text-teal-400">
+                <div className="flex flex-col gap-2 mt-2">
+                    <button 
+                        onClick={() => setDetailTab('database')}
+                        className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${detailTab === 'database' ? 'bg-teal-500/20 text-teal-400 shadow-lg shadow-teal-500/10' : 'bg-zinc-800/50 hover:bg-zinc-800 text-zinc-400 hover:text-white'}`}
+                        title="Base de Datos"
+                    >
                         <Database className="w-6 h-6" />
+                    </button>
+                    
+                    <button 
+                        onClick={() => setDetailTab('students')}
+                        className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${detailTab === 'students' ? 'bg-blue-500/20 text-blue-400 shadow-lg shadow-blue-500/10' : 'bg-zinc-800/50 hover:bg-zinc-800 text-zinc-400 hover:text-white'}`}
+                        title="Estudiantes"
+                    >
+                        <Users className="w-6 h-6" />
                     </button>
                 </div>
 
@@ -393,18 +440,27 @@ export default function TeacherDashboard() {
                             </div>
                             <div>
                                 <h1 className="text-3xl font-bold text-white mb-1 tracking-tight">{selectedCourse?.title || 'Panel Docente'}</h1>
-                                <p className="text-zinc-400 font-light text-[13px]">Gestiona la documentación técnica que alimenta la IA de esta materia</p>
+                                <p className="text-zinc-400 font-light text-[13px]">
+                                    {detailTab === 'database' 
+                                        ? 'Gestiona la documentación técnica que alimenta la IA de esta materia' 
+                                        : 'Gestiona los estudiantes matriculados en esta materia'}
+                                </p>
                             </div>
                         </div>
                         
-                        <button
-                            onClick={() => setIsAddStudentModalOpen(true)}
-                            className="bg-zinc-800 hover:bg-zinc-700 text-white px-5 py-2.5 rounded-xl font-medium transition-colors flex items-center gap-2 border border-zinc-700"
-                        >
-                            <Users className="w-4 h-4" />
-                            Añadir Estudiante
-                        </button>
+                        {detailTab === 'students' && (
+                            <button
+                                onClick={() => setIsAddStudentModalOpen(true)}
+                                className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl font-medium transition-colors flex items-center gap-2 shadow-lg shadow-blue-500/20"
+                            >
+                                <Plus className="w-4 h-4" />
+                                Añadir Estudiante
+                            </button>
+                        )}
                     </header>
+
+                    {detailTab === 'database' ? (
+                        <>
 
                     {/* Stats Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -517,6 +573,59 @@ export default function TeacherDashboard() {
 
                         </div>
                     </div>
+                        </>
+                    ) : (
+                        <div className="bg-[#141416] border border-zinc-800/60 rounded-2xl p-6 shadow-xl overflow-hidden mt-6">
+                            <h2 className="text-xl font-bold text-white mb-6">Estudiantes Matriculados ({courseStudents.length})</h2>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="border-b border-zinc-800/60 text-zinc-400 text-sm">
+                                            <th className="pb-3 px-4 font-medium">Nombre</th>
+                                            <th className="pb-3 px-4 font-medium">Código</th>
+                                            <th className="pb-3 px-4 font-medium">Último Acceso</th>
+                                            <th className="pb-3 px-4 font-medium text-right">Acciones</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {courseStudents.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={4} className="text-center py-12 text-zinc-500 bg-zinc-900/20 rounded-xl">
+                                                    No hay estudiantes matriculados en este curso.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            courseStudents.map((enrollment: any) => (
+                                                <tr key={enrollment.id} className="border-b border-zinc-800/50 hover:bg-zinc-800/40 transition-colors group">
+                                                    <td className="py-4 px-4 font-medium text-white flex items-center gap-3">
+                                                        <div className="w-8 h-8 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-xs font-bold">
+                                                            {enrollment.student?.name?.charAt(0) || 'U'}
+                                                        </div>
+                                                        {enrollment.student?.name}
+                                                    </td>
+                                                    <td className="py-4 px-4 text-zinc-300">
+                                                        <span className="bg-zinc-800/80 font-mono text-xs px-2.5 py-1 rounded-md border border-zinc-700/50">{enrollment.student?.code}</span>
+                                                    </td>
+                                                    <td className="py-4 px-4 text-sm text-zinc-400">
+                                                        {enrollment.lastAccessAt ? new Date(enrollment.lastAccessAt).toLocaleString('es-ES') : 'Nunca'}
+                                                    </td>
+                                                    <td className="py-4 px-4 text-right">
+                                                        <button 
+                                                            onClick={() => handleRemoveStudent(enrollment.id)}
+                                                            className="p-2 bg-zinc-800/50 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 rounded-lg transition-all"
+                                                            title="Expulsar del curso"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
                 </main>
             </div>
 

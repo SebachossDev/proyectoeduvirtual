@@ -54,6 +54,7 @@ model Enrollment {
   grade     Float?   // Calificación del estudiante en este curso
 
   enrolledAt DateTime @default(now())
+  lastAccessAt DateTime? // Última vez que el estudiante entró al curso
 
   @@unique([studentId, courseId])
 }

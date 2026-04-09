@@ -183,6 +183,39 @@ app.post('/api/courses/:courseId/enroll', async (req, res) => {
     }
 });
 
+// Registrar último acceso del estudiante a un curso
+app.put('/api/courses/:courseId/access/:studentId', async (req, res) => {
+    const { courseId, studentId } = req.params;
+    try {
+        const enrollment = await prisma.enrollment.findUnique({
+            where: { studentId_courseId: { studentId, courseId } }
+        });
+        
+        if (enrollment) {
+            await prisma.enrollment.update({
+                where: { id: enrollment.id },
+                data: { lastAccessAt: new Date() }
+            });
+            res.json({ success: true });
+        } else {
+            res.status(404).json({ error: 'Matrícula no encontrada' });
+        }
+    } catch (error: any) {
+        res.status(400).json({ error: 'Error al actualizar último acceso' });
+    }
+});
+
+// Eliminar estudiante del curso (desmatricular)
+app.delete('/api/enrollments/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        await prisma.enrollment.delete({ where: { id } });
+        res.json({ success: true });
+    } catch (error: any) {
+        res.status(400).json({ error: 'Error al desmatricular al estudiante' });
+    }
+});
+
 // NUEVO: Obtener los cursos matriculados de un estudiante específico (para el Student Dashboard)
 app.get('/api/students/:studentId/courses', async (req, res) => {
     const { studentId } = req.params;

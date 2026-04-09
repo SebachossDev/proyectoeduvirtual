@@ -107,6 +107,12 @@ export default function StudentDashboard() {
         setSelectedCourse(course);
         setViewTab('materials'); // Default tab
 
+        // Registrar acceso
+        if (user) {
+            fetch(`http://localhost:3000/api/courses/${course.id}/access/${user.id}`, { method: 'PUT' })
+                .catch(err => console.error('Error registrando acceso', err));
+        }
+
         // Fetch course resources for the feed
         try {
             const res = await fetch(`http://localhost:3000/api/courses/${course.id}/sessions`);
