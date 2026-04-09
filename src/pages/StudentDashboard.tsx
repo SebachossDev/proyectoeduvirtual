@@ -211,6 +211,28 @@ export default function StudentDashboard() {
         }
     };
 
+    const forceDownload = async (e: React.MouseEvent, url: string, filename: string) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Network response was not ok');
+            const blob = await response.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = filename || 'descarga';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(blobUrl);
+        } catch (error) {
+            console.error('Error downloading file:', error);
+            // Fallback si el fetch falla por CORS o red
+            window.open(url, '_blank');
+        }
+    };
+
     return (
         <div className="h-screen w-full bg-[#0d0d0f] text-zinc-200 flex font-sans overflow-hidden relative">
 
@@ -418,7 +440,16 @@ export default function StudentDashboard() {
                                                     initial={{ opacity: 0, y: 10 }}
                                                     animate={{ opacity: 1, y: 0 }}
                                                     key={res.id}
-                                                    className="bg-[#141416] border border-zinc-800/80 hover:border-cyan-500/30 rounded-2xl p-5 flex items-center justify-between group transition-all"
+                                                    onClick={() => setViewingItem({
+                                                        id: res.id,
+                                                        type: 'DOCUMENT',
+                                                        title: res.title,
+                                                        savedAt: res.createdAt,
+                                                        course: selectedCourse,
+                                                        content: null,
+                                                        resource: res
+                                                    })}
+                                                    className="bg-[#141416] border border-zinc-800/80 hover:border-cyan-500/30 rounded-2xl p-5 flex items-center justify-between group transition-all cursor-pointer shadow-sm"
                                                 >
                                                     <div className="flex items-center gap-5">
                                                         <div className="w-12 h-12 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center shrink-0">
@@ -439,17 +470,13 @@ export default function StudentDashboard() {
                                                         >
                                                             <Backpack className="w-5 h-5" />
                                                         </button>
-                                                        <a 
-                                                            href={res.url} 
-                                                            target="_blank" 
-                                                            rel="noopener noreferrer" 
-                                                            download 
-                                                            onClick={(e) => e.stopPropagation()}
+                                                        <button 
+                                                            onClick={(e) => forceDownload(e, res.url, res.title)}
                                                             className="w-10 h-10 rounded-xl bg-zinc-800 hover:bg-cyan-500/20 text-zinc-400 hover:text-cyan-400 flex items-center justify-center transition-colors"
                                                             title="Descargar material"
                                                         >
                                                             <Download className="w-5 h-5" />
-                                                        </a>
+                                                        </button>
                                                     </div>
                                                 </motion.div>
                                             ))}
@@ -683,6 +710,13 @@ export default function StudentDashboard() {
 
                                             {viewingItem.resource?.url && (
                                                 <div className="mt-6 pt-4 border-t border-zinc-800/50 shrink-0 flex gap-3">
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); handleSaveToBackpack('DOCUMENT', viewingItem.title, undefined, viewingItem.resource.id); }}
+                                                        className="flex-1 py-2.5 px-4 bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 text-sm"
+                                                    >
+                                                        <Backpack className="w-4 h-4 text-purple-400" />
+                                                        Mochila
+                                                    </button>
                                                     <a 
                                                         href={viewingItem.resource.url} 
                                                         target="_blank" 
@@ -690,18 +724,15 @@ export default function StudentDashboard() {
                                                         className="flex-1 py-2.5 px-4 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 text-sm"
                                                     >
                                                         <LinkIcon className="w-4 h-4" />
-                                                        Ver Pestaña Completa
+                                                        Ver Completo
                                                     </a>
-                                                    <a 
-                                                        href={viewingItem.resource.url} 
-                                                        target="_blank" 
-                                                        download
-                                                        rel="noopener noreferrer"
+                                                    <button 
+                                                        onClick={(e) => forceDownload(e, viewingItem.resource.url, viewingItem.title)}
                                                         className="flex-1 py-2.5 px-4 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2 shadow-lg shadow-purple-500/20 text-sm"
                                                     >
                                                         <Download className="w-4 h-4" />
-                                                        Descargar Archivo
-                                                    </a>
+                                                        Descargar
+                                                    </button>
                                                 </div>
                                             )}
                         </motion.div>
