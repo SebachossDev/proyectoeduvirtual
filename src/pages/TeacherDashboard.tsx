@@ -14,18 +14,18 @@ interface DocumentFile {
 
 export default function TeacherDashboard() {
     const navigate = useNavigate();
-    
+
     // User Context
     const [user, setUser] = useState<any>(null);
     const [view, setView] = useState<'courses' | 'detail'>('courses');
-    
+
     const [detailTab, setDetailTab] = useState<'database' | 'students'>('database');
     const [courseStudents, setCourseStudents] = useState<any[]>([]);
-    
+
     // Courses State
     const [courses, setCourses] = useState<any[]>([]);
     const [selectedCourse, setSelectedCourse] = useState<any>(null);
-    
+
     // Course Detail State
     const [documents, setDocuments] = useState<DocumentFile[]>([]);
     const [isDragging, setIsDragging] = useState(false);
@@ -161,7 +161,7 @@ export default function TeacherDashboard() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ code: studentCode })
             });
-            
+
             const data = await res.json();
             if (res.ok) {
                 alert('Estudiante matriculado con éxito');
@@ -181,19 +181,19 @@ export default function TeacherDashboard() {
     const handleDeleteDocument = async (id: string, isProcessing: boolean) => {
         // Remove locally immediately for snappy UX
         setDocuments(docs => docs.filter(d => d.id !== id));
-        
+
         if (!isProcessing) {
             await fetch(`http://localhost:3000/api/resources/${id}`, { method: 'DELETE' });
             // Optionally reload to sync
-            fetchCourses(user.id); 
+            fetchCourses(user.id);
         }
     };
 
     const handleFileUploadMockup = async (files: FileList | null) => {
         if (!files || files.length === 0 || !selectedCourse) return;
-        
+
         const fileArr = Array.from(files);
-        
+
         // 1. Create Local Mock "Processing" States
         const newLocalDocs: DocumentFile[] = fileArr.map((file, i) => ({
             id: `temp-${Date.now()}-${i}`,
@@ -207,8 +207,8 @@ export default function TeacherDashboard() {
         setDocuments(prev => [...newLocalDocs, ...prev]);
 
         // We assume the course has at least one session "General" from creation
-        const targetSessionId = selectedCourse.sessions && selectedCourse.sessions.length > 0 
-            ? selectedCourse.sessions[0].id 
+        const targetSessionId = selectedCourse.sessions && selectedCourse.sessions.length > 0
+            ? selectedCourse.sessions[0].id
             : null;
 
         if (!targetSessionId) {
@@ -220,32 +220,34 @@ export default function TeacherDashboard() {
         for (let i = 0; i < fileArr.length; i++) {
             const file = fileArr[i];
             const tempId = newLocalDocs[i].id;
-            
+
             // Artificial delay to show the beautiful "Procesando..." UI
             const delay = 2000 + Math.random() * 2000;
-            
+
             setTimeout(async () => {
                 try {
-                    // REAL BACKEND CALL
+                    // Empaquetar el archivo y los datos reales
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('title', file.name);
+                    formData.append('description', 'Documento técnico para IA');
+                    // Usaremos un tipo dinámico corto
+                    formData.append('type', file.name.split('.').pop()?.toUpperCase() || 'DOC');
+                    formData.append('sessionId', targetSessionId);
+
+                    // LLAMADA AL BACKEND REAL (Sin 'Content-Type' JSON, FormData lo hace solo)
                     const res = await fetch('http://localhost:3000/api/resources', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            title: file.name,
-                            description: 'Documento técnico para IA',
-                            url: `local://fake-url-${Date.now()}`,
-                            type: 'PDF',
-                            sessionId: targetSessionId
-                        })
+                        body: formData
                     });
-                    
+
                     if (res.ok) {
                         const createdResource = await res.json();
                         // Update state to Ready and replace temp ID with Real ID
-                        setDocuments(prev => prev.map(d => 
-                            d.id === tempId ? { 
-                                ...d, 
-                                id: createdResource.id, 
+                        setDocuments(prev => prev.map(d =>
+                            d.id === tempId ? {
+                                ...d,
+                                id: createdResource.id,
                                 status: 'ready',
                                 date: new Date(createdResource.createdAt).toLocaleDateString('es-ES')
                             } : d
@@ -280,7 +282,7 @@ export default function TeacherDashboard() {
                         {user?.name?.charAt(0) || 'D'}
                     </div>
                     <div className="mt-auto">
-                        <button 
+                        <button
                             onClick={handleLogout}
                             className="w-12 h-12 rounded-xl flex items-center justify-center text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-all font-light"
                             title="Cerrar Sesión"
@@ -388,7 +390,7 @@ export default function TeacherDashboard() {
                 </div>
 
                 <div className="relative group">
-                    <button 
+                    <button
                         onClick={() => {
                             setView('courses');
                             fetchCourses(user.id);
@@ -401,15 +403,15 @@ export default function TeacherDashboard() {
                 </div>
 
                 <div className="flex flex-col gap-2 mt-2">
-                    <button 
+                    <button
                         onClick={() => setDetailTab('database')}
                         className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${detailTab === 'database' ? 'bg-teal-500/20 text-teal-400 shadow-lg shadow-teal-500/10' : 'bg-zinc-800/50 hover:bg-zinc-800 text-zinc-400 hover:text-white'}`}
                         title="Base de Datos"
                     >
                         <Database className="w-6 h-6" />
                     </button>
-                    
-                    <button 
+
+                    <button
                         onClick={() => setDetailTab('students')}
                         className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${detailTab === 'students' ? 'bg-blue-500/20 text-blue-400 shadow-lg shadow-blue-500/10' : 'bg-zinc-800/50 hover:bg-zinc-800 text-zinc-400 hover:text-white'}`}
                         title="Estudiantes"
@@ -419,7 +421,7 @@ export default function TeacherDashboard() {
                 </div>
 
                 <div className="mt-auto">
-                    <button 
+                    <button
                         onClick={handleLogout}
                         className="w-12 h-12 rounded-xl flex items-center justify-center text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-all font-light"
                         title="Cerrar Sesión"
@@ -441,13 +443,13 @@ export default function TeacherDashboard() {
                             <div>
                                 <h1 className="text-3xl font-bold text-white mb-1 tracking-tight">{selectedCourse?.title || 'Panel Docente'}</h1>
                                 <p className="text-zinc-400 font-light text-[13px]">
-                                    {detailTab === 'database' 
-                                        ? 'Gestiona la documentación técnica que alimenta la IA de esta materia' 
+                                    {detailTab === 'database'
+                                        ? 'Gestiona la documentación técnica que alimenta la IA de esta materia'
                                         : 'Gestiona los estudiantes matriculados en esta materia'}
                                 </p>
                             </div>
                         </div>
-                        
+
                         {detailTab === 'students' && (
                             <button
                                 onClick={() => setIsAddStudentModalOpen(true)}
@@ -462,117 +464,116 @@ export default function TeacherDashboard() {
                     {detailTab === 'database' ? (
                         <>
 
-                    {/* Stats Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                        <div className="bg-[#141416] border border-zinc-800/60 rounded-2xl p-6 flex items-center justify-between shadow-lg">
-                            <div>
-                                <p className="text-[13px] text-zinc-400 mb-1 font-medium">Total Documentos</p>
-                                <p className="text-4xl font-bold text-white">{totalDocumentos}</p>
-                            </div>
-                            <FileText className="w-8 h-8 text-cyan-400" />
-                        </div>
-                        
-                        <div className="bg-[#141416] border border-zinc-800/60 rounded-2xl p-6 flex items-center justify-between shadow-lg">
-                            <div>
-                                <p className="text-[13px] text-zinc-400 mb-1 font-medium">Listos para IA</p>
-                                <p className="text-4xl font-bold text-green-400">{listosParaIA}</p>
-                            </div>
-                            <CheckCircle className="w-8 h-8 text-green-500" />
-                        </div>
-
-                        <div className="bg-[#141416] border border-zinc-800/60 rounded-2xl p-6 flex items-center justify-between shadow-lg">
-                            <div>
-                                <p className="text-[13px] text-zinc-400 mb-1 font-medium">Procesando</p>
-                                <p className="text-4xl font-bold text-cyan-400">{procesando}</p>
-                            </div>
-                            <Activity className="w-8 h-8 text-cyan-400" />
-                        </div>
-                    </div>
-
-                    {/* Upload Zone */}
-                    <div 
-                        className={`mb-12 border-2 border-dashed rounded-3xl p-12 flex flex-col items-center justify-center transition-all bg-[#141416]/50 ${
-                            isDragging ? 'border-purple-500 bg-purple-500/5' : 'border-zinc-800/80 hover:border-zinc-700'
-                        }`}
-                        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                        onDragLeave={() => setIsDragging(false)}
-                        onDrop={(e) => {
-                            e.preventDefault();
-                            setIsDragging(false);
-                            handleFileUploadMockup(e.dataTransfer.files);
-                        }}
-                    >
-                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-400 to-purple-600 flex items-center justify-center text-white mb-6 shadow-xl shadow-purple-500/20">
-                            <Upload className="w-7 h-7" />
-                        </div>
-                        <h3 className="text-xl font-bold text-white mb-2">Arrastra archivos aquí</h3>
-                        <p className="text-zinc-400 text-sm mb-6">o haz clic para seleccionar documentación técnica</p>
-                        
-                        <input 
-                            type="file" 
-                            multiple 
-                            className="hidden" 
-                            ref={fileInputRef}
-                            onChange={(e) => handleFileUploadMockup(e.target.files)}
-                            accept=".pdf,.doc,.docx,.txt"
-                        />
-                        <button 
-                            onClick={() => fileInputRef.current?.click()}
-                            className="bg-gradient-to-r from-cyan-400 to-purple-600 text-white px-8 py-3 rounded-xl font-medium hover:from-cyan-500 hover:to-purple-700 transition-all shadow-lg shadow-purple-500/25"
-                        >
-                            Seleccionar Archivos
-                        </button>
-                        <p className="text-[10px] text-zinc-600 mt-6 tracking-wider font-medium">FORMATOS SOPORTADOS: PDF, DOC, DOCX, TXT</p>
-                    </div>
-
-                    {/* Documents List */}
-                    <div>
-                        <h2 className="text-xl font-bold text-white mb-6">Documentos Cargados</h2>
-                        <div className="space-y-4">
-                            
-                            {documents.length === 0 ? (
-                                <p className="text-zinc-500 text-center py-8">No hay documentos cargados aún en este curso.</p>
-                            ) : documents.map((doc) => (
-                                <div key={doc.id} className="bg-[#141416] border border-zinc-800/60 rounded-2xl p-5 flex items-center gap-5 relative overflow-hidden group hover:border-purple-500/30 transition-colors">
-                                    <div className="w-12 h-12 rounded-xl bg-zinc-800/50 flex items-center justify-center text-cyan-400 shrink-0">
-                                        <FileText className="w-6 h-6" />
+                            {/* Stats Grid */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                                <div className="bg-[#141416] border border-zinc-800/60 rounded-2xl p-6 flex items-center justify-between shadow-lg">
+                                    <div>
+                                        <p className="text-[13px] text-zinc-400 mb-1 font-medium">Total Documentos</p>
+                                        <p className="text-4xl font-bold text-white">{totalDocumentos}</p>
                                     </div>
-                                    <div className="flex-1 min-w-0">
-                                        <h4 className="text-[15px] font-bold text-white truncate mb-1">{doc.title}</h4>
-                                        <p className="text-[11px] text-zinc-500 font-medium">
-                                            {doc.course} <span className="mx-1">•</span> {doc.size} <span className="mx-1">•</span> {doc.date}
-                                        </p>
-                                    </div>
-                                    <div className="flex items-center gap-4 shrink-0">
-                                        {doc.status === 'ready' ? (
-                                            <div className="flex items-center gap-1.5 text-green-400 text-sm font-medium transition-all">
-                                                <CheckCircle className="w-4 h-4" />
-                                                Lista para IA
-                                            </div>
-                                        ) : (
-                                            <div className="flex items-center gap-1.5 text-cyan-400 text-sm font-medium transition-all">
-                                                <Activity className="w-4 h-4 animate-pulse" />
-                                                Procesando...
-                                            </div>
-                                        )}
-                                        <button 
-                                            onClick={() => handleDeleteDocument(doc.id, doc.status === 'processing')}
-                                            className="w-10 h-10 rounded-xl bg-zinc-800/50 hover:bg-red-500 text-zinc-500 hover:text-white flex items-center justify-center transition-colors"
-                                            title="Eliminar"
-                                        >
-                                            <Trash2 className="w-5 h-5" />
-                                        </button>
-                                    </div>
-                                    {doc.status === 'processing' && (
-                                        <div className="absolute bottom-0 left-0 h-[3px] w-full bg-zinc-800">
-                                            <div className="h-full w-2/3 bg-gradient-to-r from-cyan-400 to-purple-600 animate-pulse"></div>
-                                        </div>
-                                    )}
+                                    <FileText className="w-8 h-8 text-cyan-400" />
                                 </div>
-                            ))}
 
-                        </div>
-                    </div>
+                                <div className="bg-[#141416] border border-zinc-800/60 rounded-2xl p-6 flex items-center justify-between shadow-lg">
+                                    <div>
+                                        <p className="text-[13px] text-zinc-400 mb-1 font-medium">Listos para IA</p>
+                                        <p className="text-4xl font-bold text-green-400">{listosParaIA}</p>
+                                    </div>
+                                    <CheckCircle className="w-8 h-8 text-green-500" />
+                                </div>
+
+                                <div className="bg-[#141416] border border-zinc-800/60 rounded-2xl p-6 flex items-center justify-between shadow-lg">
+                                    <div>
+                                        <p className="text-[13px] text-zinc-400 mb-1 font-medium">Procesando</p>
+                                        <p className="text-4xl font-bold text-cyan-400">{procesando}</p>
+                                    </div>
+                                    <Activity className="w-8 h-8 text-cyan-400" />
+                                </div>
+                            </div>
+
+                            {/* Upload Zone */}
+                            <div
+                                className={`mb-12 border-2 border-dashed rounded-3xl p-12 flex flex-col items-center justify-center transition-all bg-[#141416]/50 ${isDragging ? 'border-purple-500 bg-purple-500/5' : 'border-zinc-800/80 hover:border-zinc-700'
+                                    }`}
+                                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                                onDragLeave={() => setIsDragging(false)}
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    setIsDragging(false);
+                                    handleFileUploadMockup(e.dataTransfer.files);
+                                }}
+                            >
+                                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-400 to-purple-600 flex items-center justify-center text-white mb-6 shadow-xl shadow-purple-500/20">
+                                    <Upload className="w-7 h-7" />
+                                </div>
+                                <h3 className="text-xl font-bold text-white mb-2">Arrastra archivos aquí</h3>
+                                <p className="text-zinc-400 text-sm mb-6">o haz clic para seleccionar documentación técnica</p>
+
+                                <input
+                                    type="file"
+                                    multiple
+                                    className="hidden"
+                                    ref={fileInputRef}
+                                    onChange={(e) => handleFileUploadMockup(e.target.files)}
+                                    accept=".pdf,.doc,.docx,.txt"
+                                />
+                                <button
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="bg-gradient-to-r from-cyan-400 to-purple-600 text-white px-8 py-3 rounded-xl font-medium hover:from-cyan-500 hover:to-purple-700 transition-all shadow-lg shadow-purple-500/25"
+                                >
+                                    Seleccionar Archivos
+                                </button>
+                                <p className="text-[10px] text-zinc-600 mt-6 tracking-wider font-medium">FORMATOS SOPORTADOS: PDF, DOC, DOCX, TXT</p>
+                            </div>
+
+                            {/* Documents List */}
+                            <div>
+                                <h2 className="text-xl font-bold text-white mb-6">Documentos Cargados</h2>
+                                <div className="space-y-4">
+
+                                    {documents.length === 0 ? (
+                                        <p className="text-zinc-500 text-center py-8">No hay documentos cargados aún en este curso.</p>
+                                    ) : documents.map((doc) => (
+                                        <div key={doc.id} className="bg-[#141416] border border-zinc-800/60 rounded-2xl p-5 flex items-center gap-5 relative overflow-hidden group hover:border-purple-500/30 transition-colors">
+                                            <div className="w-12 h-12 rounded-xl bg-zinc-800/50 flex items-center justify-center text-cyan-400 shrink-0">
+                                                <FileText className="w-6 h-6" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="text-[15px] font-bold text-white truncate mb-1">{doc.title}</h4>
+                                                <p className="text-[11px] text-zinc-500 font-medium">
+                                                    {doc.course} <span className="mx-1">•</span> {doc.size} <span className="mx-1">•</span> {doc.date}
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-4 shrink-0">
+                                                {doc.status === 'ready' ? (
+                                                    <div className="flex items-center gap-1.5 text-green-400 text-sm font-medium transition-all">
+                                                        <CheckCircle className="w-4 h-4" />
+                                                        Lista para IA
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center gap-1.5 text-cyan-400 text-sm font-medium transition-all">
+                                                        <Activity className="w-4 h-4 animate-pulse" />
+                                                        Procesando...
+                                                    </div>
+                                                )}
+                                                <button
+                                                    onClick={() => handleDeleteDocument(doc.id, doc.status === 'processing')}
+                                                    className="w-10 h-10 rounded-xl bg-zinc-800/50 hover:bg-red-500 text-zinc-500 hover:text-white flex items-center justify-center transition-colors"
+                                                    title="Eliminar"
+                                                >
+                                                    <Trash2 className="w-5 h-5" />
+                                                </button>
+                                            </div>
+                                            {doc.status === 'processing' && (
+                                                <div className="absolute bottom-0 left-0 h-[3px] w-full bg-zinc-800">
+                                                    <div className="h-full w-2/3 bg-gradient-to-r from-cyan-400 to-purple-600 animate-pulse"></div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+
+                                </div>
+                            </div>
                         </>
                     ) : (
                         <div className="bg-[#141416] border border-zinc-800/60 rounded-2xl p-6 shadow-xl overflow-hidden mt-6">
@@ -610,7 +611,7 @@ export default function TeacherDashboard() {
                                                         {enrollment.lastAccessAt ? new Date(enrollment.lastAccessAt).toLocaleString('es-ES') : 'Nunca'}
                                                     </td>
                                                     <td className="py-4 px-4 text-right">
-                                                        <button 
+                                                        <button
                                                             onClick={() => handleRemoveStudent(enrollment.id)}
                                                             className="p-2 bg-zinc-800/50 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 rounded-lg transition-all"
                                                             title="Expulsar del curso"

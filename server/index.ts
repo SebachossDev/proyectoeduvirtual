@@ -1,12 +1,42 @@
 import express from 'express';
 import cors from 'cors';
 import { PrismaClient } from '@prisma/client';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+// En ES Modules (vite/tsx) no existe __dirname de forma nativa. Lo construimos así:
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Crear la carpeta uploads si no existe
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir);
+}
+
+// Configuración de Multer
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + path.extname(file.originalname));
+    }
+});
+
+const upload = multer({ storage: storage });
+
+
 
 const app = express();
 const prisma = new PrismaClient();
 
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ----- SSE SETUP FOR REAL-TIME -----
 const clients = new Set<express.Response>();
@@ -103,7 +133,7 @@ app.get('/api/courses', async (req, res) => {
     const teacherId = req.query.teacherId as string;
     try {
         const whereClause = teacherId ? { teacherId } : {};
-        const courses = await prisma.course.findMany({ 
+        const courses = await prisma.course.findMany({
             where: whereClause,
             include: { teacher: true, sessions: { include: { resources: true } } },
             orderBy: { createdAt: 'desc' }
@@ -163,17 +193,17 @@ app.get('/api/courses/:courseId/participants', async (req, res) => {
 app.post('/api/courses/:courseId/enroll', async (req, res) => {
     const { courseId } = req.params;
     const code = req.body.code?.trim();
-    
+
     try {
         const student = await prisma.user.findUnique({ where: { code } });
-        
+
         if (!student) {
             return res.status(404).json({ error: 'Estudiante no encontrado con ese código' });
         }
         if (student.role !== 'STUDENT') {
             return res.status(400).json({ error: 'El código pertenece a un usuario que no es estudiante' });
         }
-        
+
         const enrollment = await prisma.enrollment.create({
             data: { studentId: student.id, courseId }
         });
@@ -190,7 +220,7 @@ app.put('/api/courses/:courseId/access/:studentId', async (req, res) => {
         const enrollment = await prisma.enrollment.findUnique({
             where: { studentId_courseId: { studentId, courseId } }
         });
-        
+
         if (enrollment) {
             await prisma.enrollment.update({
                 where: { id: enrollment.id },
@@ -234,13 +264,13 @@ app.get('/api/students/:studentId/courses', async (req, res) => {
             },
             orderBy: { enrolledAt: 'desc' }
         });
-        
+
         // Mapeamos para enviar un arreglo de cursos en lugar de enrollments crudos
         const enrolledCourses = enrollments.map(e => ({
             ...e.course,
             progress: e.grade ? Math.min(100, Math.round((e.grade / 10) * 100)) : 0, // Mocking progress based on grade or 0
         }));
-        
+
         res.json(enrolledCourses);
     } catch (error: any) {
         res.status(400).json({ error: error.message });
@@ -285,29 +315,32 @@ app.post('/api/sessions', async (req, res) => {
     }
 });
 
-app.post('/api/resources', async (req, res) => {
-    const { title, description, url, type, sessionId } = req.body;
+app.post('/api/resources', upload.single('file'), async (req: any, res: any) => {
+    const { title, description, sessionId, type } = req.body;
+
+    // Generar la URL pública real
+    let finalUrl = '';
+    if (req.file) {
+        finalUrl = `http://localhost:3000/uploads/${req.file.filename}`;
+    } else {
+        return res.status(400).json({ error: 'No se subió ningún archivo' });
+    }
+
     try {
         const resource = await prisma.resource.create({
-            data: { title, description, url, type, sessionId },
-            include: { session: true } // Need session to know which course this belongs to
+            data: { title, description, url: finalUrl, type, sessionId },
+            include: { session: true }
         });
 
-        // EMITIR EVENTO EN TIEMPO REAL (SSE) a los estudiantes
-        sendEventToClients({
-            type: 'NEW_RESOURCE',
-            payload: {
-                resource,
-                courseId: resource.session.courseId
-            }
-        });
+        // Evento en tiempo real
+        sendEventToClients({ type: 'NEW_RESOURCE', payload: { resource, courseId: resource.session.courseId } });
 
         res.json(resource);
     } catch (error: any) {
-        console.error("POST /api/resources ERROR:", error);
-        res.status(400).json({ error: error.message || 'Error al crear recurso' });
+        res.status(400).json({ error: error.message });
     }
 });
+
 
 app.put('/api/resources/:id', async (req, res) => {
     const { id } = req.params;
@@ -338,7 +371,7 @@ app.delete('/api/resources/:id', async (req, res) => {
 app.get('/api/backpack/:studentId', async (req, res) => {
     const { studentId } = req.params;
     const { type, courseId } = req.query;
-    
+
     // Configurar filtros dinámicamente
     let whereClause: any = { studentId };
     if (type && type !== 'ALL') whereClause.type = type;
@@ -382,4 +415,5 @@ app.delete('/api/backpack/:itemId', async (req, res) => {
 const PORT = 3000;
 app.listen(PORT, () => {
     console.log(`✅ Servidor backend corriendo en http://localhost:${PORT}`);
+
 });
