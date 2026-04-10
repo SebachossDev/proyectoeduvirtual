@@ -38,6 +38,7 @@ model Course {
   sessions    Session[]
   enrollments Enrollment[]
   backpackItems BackpackItem[]
+  chunks      DocumentChunk[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -85,11 +86,33 @@ model Resource {
   sessionId   String
   session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   
+  // Aislamiento Multi-Tenant AI
+  chunks      DocumentChunk[]
+  
   // Elementos de mochila que referencian a este recurso
   backpackItems BackpackItem[]
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// Fragmento de conocimiento para RAG AI (Aislamiento Total)
+model DocumentChunk {
+  id          String   @id @default(uuid())
+  content     String
+  
+  // En SQLite local, podemos simular el embedding/vector index guardándolo en crudo
+  embedding   String?  
+  
+  // Aislamiento por curso (MANDATORIO)
+  courseId    String
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  
+  // Origen del archivo del docente
+  resourceId  String
+  resource    Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
 }
 
 // Representa un recurso guardado por un estudiante en su "Mochila"

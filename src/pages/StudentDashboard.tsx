@@ -2,10 +2,14 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-    LogOut, Backpack,
+    LogOut, Backpack, User,
     BookOpen, Calculator, Users, FileSpreadsheet, Code,
     X, FileText, Video, Link as LinkIcon, Calendar, ArrowLeft, Bot, Send, Sparkles, Database, Layers, ChevronRight, Download
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 
 export default function StudentDashboard() {
     const navigate = useNavigate();
@@ -31,6 +35,18 @@ export default function StudentDashboard() {
     const [viewTab, setViewTab] = useState<'materials' | 'chat'>('materials');
     const [resources, setResources] = useState<any[]>([]);
     const [chatInput, setChatInput] = useState('');
+    const [chatMessages, setChatMessages] = useState<any[]>([]);
+    const [isChatLoading, setIsChatLoading] = useState(false);
+    const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    };
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [chatMessages, isChatLoading]);
 
     // Real-Time Toast State
     const [toast, setToast] = useState<{ resource: any, courseId: string, courseName: string } | null>(null);
@@ -112,6 +128,10 @@ export default function StudentDashboard() {
     const handleSelectCourse = async (course: any) => {
         setSelectedCourse(course);
         setViewTab('materials'); // Default tab
+        setChatMessages([{
+            role: 'assistant',
+            content: `¡Hola! Soy el Experto enfocado en ${course.title}. Monitoreo la documentación técnica que el docente sube aquí. ¿Qué dudas tienes de este material?`
+        }]);
 
         // Registrar acceso
         if (user) {
@@ -228,8 +248,38 @@ export default function StudentDashboard() {
             window.URL.revokeObjectURL(blobUrl);
         } catch (error) {
             console.error('Error downloading file:', error);
-            // Fallback si el fetch falla por CORS o red
             window.open(url, '_blank');
+        }
+    };
+
+    const handleSendChatMessage = async () => {
+        if (!chatInput.trim() || !user || !selectedCourse) return;
+
+        const originalText = chatInput;
+        setChatMessages(prev => [...prev, { role: 'user', content: originalText }]);
+        setChatInput('');
+        setIsChatLoading(true);
+
+        try {
+            const res = await fetch('http://localhost:3000/api/ai/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    studentId: user.id, 
+                    courseId: selectedCourse.id, 
+                    query: originalText 
+                })
+            });
+            const data = await res.json();
+            
+            setChatMessages(prev => [...prev, {
+                role: 'assistant',
+                content: data.response || data.error || 'Error procesando respuesta aislada.'
+            }]);
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setIsChatLoading(false);
         }
     };
 
@@ -493,31 +543,64 @@ export default function StudentDashboard() {
                                 <div className="bg-[#1a1625] border-y border-purple-900/30 px-8 py-4 flex items-start gap-4">
                                     <BookOpen className="w-5 h-5 text-teal-400 shrink-0 mt-0.5" />
                                     <div>
-                                        <h4 className="text-white font-medium text-sm">Esta IA está alimentada exclusivamente por la documentación técnica de esta materia</h4>
-                                        <p className="text-[11px] text-purple-300/70 mt-1 font-light">Todas las respuestas se basan en el material cargado por tu docente (RAG activo)</p>
+                                        <div className="flex items-center gap-2">
+                                            <h4 className="text-white font-medium text-sm">Estás hablando con el Experto de {selectedCourse?.title}</h4>
+                                            <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-[9px] rounded border border-green-500/30 uppercase mt-0.5">Aislamiento RAG Mantenido</span>
+                                        </div>
+                                        <p className="text-[11px] text-purple-300/70 mt-1 font-light">Todas las respuestas se basan estrictamente en la base de datos de documentos cargada para esta asignatura.</p>
                                     </div>
                                 </div>
 
                                 {/* Chat Messages Area */}
                                 <div className="flex-1 overflow-y-auto px-8 py-6 flex flex-col gap-6">
-                                    {/* Initial AI Message */}
-                                    <div className="flex items-start gap-4 max-w-3xl">
-                                        <div className="w-10 h-10 rounded-xl bg-blue-500 flex items-center justify-center text-white shrink-0 mt-2 shadow-lg shadow-blue-500/20">
-                                            <Bot className="w-5 h-5" />
-                                        </div>
-                                        <div className="group relative pr-14">
-                                            <div className="bg-[#141416] border border-zinc-800/80 rounded-2xl rounded-tl-sm p-5 text-zinc-300 text-sm leading-relaxed shadow-sm">
-                                                ¡Hola! Soy tu asistente de IA especializado en {selectedCourse.title}. Estoy leyendo todo el material que el profesor acaba de subir. ¿En qué módulo te ayudo hoy?
+                                    {chatMessages.map((msg, idx) => (
+                                        <div key={idx} className={`flex items-start gap-4 max-w-3xl ${msg.role === 'user' ? 'ml-auto flex-row-reverse' : ''}`}>
+                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0 mt-2 shadow-lg ${msg.role === 'user' ? 'bg-purple-600 shadow-purple-500/20' : 'bg-blue-500 shadow-blue-500/20'}`}>
+                                                {msg.role === 'user' ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
                                             </div>
-                                            <button 
-                                                onClick={() => handleSaveToBackpack('AI_INSIGHT', `Respuesta IA en ${selectedCourse.title}`, `¡Hola! Soy tu asistente de IA especializado en ${selectedCourse.title}. Estoy leyendo todo el material que el profesor acaba de subir. ¿En qué módulo te ayudo hoy?`)}
-                                                className="absolute right-0 top-4 opacity-0 group-hover:opacity-100 p-2 bg-[#1a1a1c] border border-purple-500/30 rounded-xl text-purple-400 hover:bg-purple-500/20 transition-all shadow-md"
-                                                title="Guardar Insight"
-                                            >
-                                                <Backpack className="w-4 h-4" />
-                                            </button>
+                                            <div className={`group relative ${msg.role === 'user' ? 'pl-14' : 'pr-14'}`}>
+                                                <div className={`border rounded-2xl p-5 text-sm leading-relaxed shadow-sm
+                                                    ${msg.role === 'user' ? 'bg-purple-600/10 border-purple-500/20 text-purple-100 rounded-tr-sm whitespace-pre-wrap' : 'bg-[#141416] border-zinc-800/80 text-zinc-300 rounded-tl-sm'}
+                                                `} style={{ overflowWrap: 'anywhere' }}>
+                                                    {msg.role === 'user' ? (
+                                                        msg.content
+                                                    ) : (
+                                                        <div className="react-markdown-container">
+                                                            <ReactMarkdown
+                                                                remarkPlugins={[remarkMath]}
+                                                                rehypePlugins={[rehypeKatex]}
+                                                            >
+                                                                {msg.content}
+                                                            </ReactMarkdown>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                {msg.role === 'assistant' && (
+                                                    <button 
+                                                        onClick={() => handleSaveToBackpack('AI_INSIGHT', `Respuesta IA en ${selectedCourse.title}`, msg.content)}
+                                                        className="absolute right-0 top-4 opacity-0 group-hover:opacity-100 p-2 bg-[#1a1a1c] border border-purple-500/30 rounded-xl text-purple-400 hover:bg-purple-500/20 transition-all shadow-md"
+                                                        title="Guardar Insight"
+                                                    >
+                                                        <Backpack className="w-4 h-4" />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
-                                    </div>
+                                    ))}
+                                    
+                                    {isChatLoading && (
+                                        <div className="flex items-start gap-4 max-w-3xl">
+                                            <div className="w-10 h-10 rounded-xl bg-blue-500/50 flex items-center justify-center text-white/50 shrink-0 mt-2 animate-pulse">
+                                                <Bot className="w-5 h-5" />
+                                            </div>
+                                            <div className="bg-[#141416] border border-zinc-800/80 rounded-2xl rounded-tl-sm p-5 flex gap-2 w-24 items-center">
+                                                <div className="w-2 h-2 rounded-full bg-blue-500/60 animate-bounce"></div>
+                                                <div className="w-2 h-2 rounded-full bg-blue-500/60 animate-bounce" style={{ animationDelay: '0.2s'}}></div>
+                                                <div className="w-2 h-2 rounded-full bg-blue-500/60 animate-bounce" style={{ animationDelay: '0.4s'}}></div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div ref={messagesEndRef} />
                                 </div>
 
                                 {/* Chat Input Field */}
@@ -530,10 +613,14 @@ export default function StudentDashboard() {
                                             placeholder={`Pregunta algo sobre ${selectedCourse.title}...`}
                                             className="w-full bg-[#18181b] border border-zinc-800/80 rounded-2xl py-4 pl-6 pr-16 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-700 transition-all font-light"
                                             onKeyDown={(e) => {
-                                                if (e.key === 'Enter') setChatInput('');
+                                                if (e.key === 'Enter') handleSendChatMessage();
                                             }}
                                         />
-                                        <button className="absolute right-3 w-10 h-10 rounded-xl bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-300 transition-all">
+                                        <button 
+                                            onClick={handleSendChatMessage}
+                                            disabled={isChatLoading || !chatInput.trim()}
+                                            className="absolute right-3 w-10 h-10 rounded-xl bg-purple-600 disabled:opacity-50 hover:bg-purple-500 flex items-center justify-center text-white transition-all shadow-md"
+                                        >
                                             <Send className="w-4 h-4 ml-0.5" />
                                         </button>
                                     </div>
@@ -656,7 +743,7 @@ export default function StudentDashboard() {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+                        className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:absolute print:inset-0 print:p-0 print:bg-transparent print:backdrop-blur-none print:items-start"
                         onClick={() => setViewingItem(null)}
                     >
                         <motion.div
@@ -664,8 +751,9 @@ export default function StudentDashboard() {
                             animate={{ scale: 1, opacity: 1 }}
                             exit={{ scale: 0.95, opacity: 0 }}
                             onClick={(e) => e.stopPropagation()}
-                            className="bg-[#161618] border border-zinc-800/80 rounded-2xl p-6 md:p-8 max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+                            className="bg-[#161618] border border-zinc-800/80 rounded-2xl p-6 md:p-8 max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col max-h-[85vh] print:max-w-none print:w-full print:shadow-none print:border-none print:rounded-none print:max-h-none print:overflow-visible print:p-0 print:block"
                         >
+                          <div id="pdf-content" className="flex flex-col flex-1 overflow-hidden print:block print:overflow-visible" style={{ backgroundColor: '#161618', color: '#e2e8f0', padding: '10px' }}>
                             <div className="flex justify-between items-start mb-6 shrink-0">
                                 <div className="flex items-center gap-3">
                                     <div className="w-12 h-12 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center">
@@ -678,15 +766,22 @@ export default function StudentDashboard() {
                                         </p>
                                     </div>
                                 </div>
-                                <button onClick={() => setViewingItem(null)} className="text-zinc-500 hover:text-white p-2 rounded-lg hover:bg-zinc-800 transition-colors">
+                                <button onClick={() => setViewingItem(null)} className="no-print text-zinc-500 hover:text-white p-2 rounded-lg hover:bg-zinc-800 transition-colors">
                                     <X className="w-5 h-5" />
                                 </button>
                             </div>
                             
-                            <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                            <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar print:overflow-visible print:pr-0 print:h-auto print:block">
                                                 {viewingItem.content && (
-                                                    <div className="text-zinc-300 text-[15px] leading-relaxed whitespace-pre-wrap mb-4">
-                                                        {viewingItem.content}
+                                                    <div className="text-zinc-300 text-[15px] leading-relaxed mb-4" style={{ overflowWrap: 'anywhere' }}>
+                                                        <div className="react-markdown-container">
+                                                            <ReactMarkdown
+                                                                remarkPlugins={[remarkMath]}
+                                                                rehypePlugins={[rehypeKatex]}
+                                                            >
+                                                                {viewingItem.content}
+                                                            </ReactMarkdown>
+                                                        </div>
                                                     </div>
                                                 )}
                                                 
@@ -708,8 +803,85 @@ export default function StudentDashboard() {
                                                 )}
                                             </div>
 
+                                            {viewingItem.content && !viewingItem.resource?.url && (
+                                                <div className="mt-6 pt-4 border-t border-zinc-800/50 shrink-0 flex gap-3 no-print">
+                                                    <button 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            // Capturar el HTML renderizado del contenedor markdown
+                                                            const markdownEl = document.querySelector('#pdf-content .react-markdown-container');
+                                                            if (!markdownEl) return;
+                                                            const renderedHtml = markdownEl.innerHTML;
+
+                                                            // Abrir ventana nueva limpia con el contenido
+                                                            const printWin = window.open('', '_blank', 'width=800,height=600');
+                                                            if (!printWin) { alert('Permite las ventanas emergentes para descargar el PDF.'); return; }
+
+                                                            printWin.document.write(`<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>${viewingItem.title}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #161618; color: #e2e8f0; padding: 40px; line-height: 1.7;
+            -webkit-print-color-adjust: exact; print-color-adjust: exact;
+        }
+        .header { border-bottom: 2px solid #7c3aed; padding-bottom: 16px; margin-bottom: 24px; }
+        .header h1 { font-size: 22px; color: #c084fc; margin-bottom: 4px; }
+        .header p { font-size: 13px; color: #a1a1aa; }
+        p { margin-bottom: 0.75rem; }
+        ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 0.75rem; }
+        ol { list-style-type: decimal; padding-left: 1.5rem; margin-bottom: 0.75rem; }
+        li { margin-bottom: 0.25rem; }
+        h1, h2, h3, h4 { font-weight: 600; margin-top: 1.25rem; margin-bottom: 0.5rem; color: #fff; }
+        h1 { font-size: 1.5rem; } h2 { font-size: 1.3rem; } h3 { font-size: 1.1rem; }
+        code { background: rgba(255,255,255,0.1); padding: 0.125rem 0.3rem; border-radius: 4px; font-family: monospace; font-size: 0.9em; }
+        pre { background: rgba(0,0,0,0.4); padding: 1rem; border-radius: 8px; overflow-x: auto; margin-bottom: 0.75rem; border: 1px solid rgba(255,255,255,0.1); }
+        pre code { background: transparent; padding: 0; }
+        strong { font-weight: bold; color: #f1f5f9; }
+        em { font-style: italic; color: #cbd5e1; }
+        blockquote { border-left: 3px solid #7c3aed; padding-left: 1rem; margin: 1rem 0; color: #a1a1aa; }
+        table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+        th, td { border: 1px solid #3f3f46; padding: 8px 12px; text-align: left; }
+        th { background: rgba(124, 58, 237, 0.2); color: #c084fc; }
+        .katex { font-size: 1.1em; }
+        .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #3f3f46; text-align: center; font-size: 11px; color: #71717a; }
+        @media print {
+            body { background: #161618 !important; }
+            @page { margin: 1.5cm; }
+        }
+        .print-btn { display: block; margin: 20px auto; padding: 12px 32px; background: #7c3aed; color: #fff; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; }
+        .print-btn:hover { background: #6d28d9; }
+        @media print { .print-btn { display: none !important; } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>${viewingItem.title}</h1>
+        <p>${new Date(viewingItem.savedAt).toLocaleString('es-ES')}${viewingItem.course ? ' • ' + viewingItem.course.title : ''}</p>
+    </div>
+    <div class="content">${renderedHtml}</div>
+    <div class="footer">Generado desde EduVirtual — Plataforma de AI Educativa</div>
+    <button class="print-btn" onclick="window.print()">📄 Guardar como PDF</button>
+</body>
+</html>`);
+                                                            printWin.document.close();
+                                                        }}
+                                                        className="w-full py-2.5 px-4 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2 shadow-lg shadow-purple-500/20 text-sm"
+                                                    >
+                                                        <Download className="w-4 h-4" />
+                                                        Descargar Respuesta como PDF (.pdf)
+                                                    </button>
+                                                </div>
+                                            )}
+                          </div>
+
                                             {viewingItem.resource?.url && (
-                                                <div className="mt-6 pt-4 border-t border-zinc-800/50 shrink-0 flex gap-3">
+                                                <div className="mt-6 pt-4 border-t border-zinc-800/50 shrink-0 flex gap-3 no-print">
                                                     <button 
                                                         onClick={(e) => { e.stopPropagation(); handleSaveToBackpack('DOCUMENT', viewingItem.title, undefined, viewingItem.resource.id); }}
                                                         className="flex-1 py-2.5 px-4 bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 text-sm"

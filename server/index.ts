@@ -5,6 +5,8 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import 'dotenv/config';
+import Groq from 'groq-sdk';
 
 // En ES Modules (vite/tsx) no existe __dirname de forma nativa. Lo construimos así:
 const __filename = fileURLToPath(import.meta.url);
@@ -332,6 +334,20 @@ app.post('/api/resources', upload.single('file'), async (req: any, res: any) => 
             include: { session: true }
         });
 
+        // === MOCK PIPELINE DE INGESTIÓN (RAG) ===
+        // Simular que el PDF/Archivo es procesado, se le extrae texto en fragmentos (Chunks)
+        const mockExtractedText = `Contenido técnico extraído del documento: "${title}". ${description ? `Descripción provista por el docente: ${description}.` : ''} Información vital sobre el módulo: ${resource.session.title}.`;
+        
+        await prisma.documentChunk.create({
+            data: {
+                content: mockExtractedText,
+                embedding: JSON.stringify([0.2, -0.1, 0.8, 0.55]), // Vector simulado
+                courseId: resource.session.courseId,
+                resourceId: resource.id
+            }
+        });
+        // ===========================================
+
         // Evento en tiempo real
         sendEventToClients({ type: 'NEW_RESOURCE', payload: { resource, courseId: resource.session.courseId } });
 
@@ -409,6 +425,73 @@ app.delete('/api/backpack/:itemId', async (req, res) => {
         res.json({ success: true });
     } catch (error: any) {
         res.status(400).json({ error: 'Error al eliminar item de la mochila' });
+    }
+});
+
+// 6. RAG AI Experto (Aislamiento Multi-Tenant)
+app.post('/api/ai/chat', async (req, res) => {
+    const { studentId, courseId, query } = req.body;
+
+    try {
+    // Validación y Autorización Rígida
+    const enrollment = await prisma.enrollment.findUnique({
+        where: { studentId_courseId: { studentId: String(studentId), courseId: String(courseId) } },
+        include: { course: true }
+    });
+
+    if (!enrollment) {
+        return res.status(403).json({ error: "Acceso denegado a este contexto." });
+    }
+
+    // Aislamiento: Recuperación estricta (Retrieval)
+    const relevantChunks = await prisma.documentChunk.findMany({
+        where: { courseId: courseId },
+        take: 3
+    });
+
+    if (relevantChunks.length === 0) {
+        return res.json({ 
+            response: `Soy el Experto de ${enrollment.course.title}. Actualmente el profesor no ha subido material técnico a este módulo, por lo que no puedo responder preguntas basándome en una fuente autorizada.` 
+        });
+    }
+
+    const contextText = relevantChunks.map(c => c.content).join('\n\n');
+
+        const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+        
+        const systemPrompt = `Eres el "Experto Virtual de ${enrollment.course.title}", un asistente académico oficial y avanzado exclusivo para este curso.
+
+DIRECTRICES DE COMPORTAMIENTO (MODO ASISTENTE INTELIGENTE):
+1. Responde a las preguntas del estudiante utilizando todo tu razonamiento lógico, matemático o teórico avanzado (tienes permitido usar tu conocimiento global).
+2. Debes actuar como un profesor paciente y claro. Si te hacen una pregunta académica de tu materia, explícala con ejemplos comprensibles.
+3. Relaciona tus explicaciones siempre que sea posible con el siguiente [CONTEXTO DEL CURSO], que describe el material subido por el docente.
+4. Si la pregunta está completamente fuera del ámbito académico de la materia (ej. política, cocina, chismes), indícale cortésmente que solo puedes hablar del tema de la clase.
+5. Usa notación LaTeX para fórmulas matemáticas: $formula$ para inline, $$formula$$ para bloque.
+
+[CONTEXTO DEL CURSO (Referencia de archivos del docente)]:
+${contextText}`;
+
+        const chatCompletion = await groq.chat.completions.create({
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: query }
+            ],
+            model: 'llama-3.3-70b-versatile',
+            temperature: 0.7,
+            max_tokens: 4096,
+        });
+
+        const responseText = chatCompletion.choices[0]?.message?.content || 'No se pudo generar una respuesta.';
+        res.json({ response: responseText });
+    } catch (error: any) {
+        console.error("Error AI API:", error.message);
+        let humanError = "Lo sentimos, el servidor experimentó un problema al conectarse con el experto. " + error.message;
+        if (error.message && (error.message.includes("401") || error.message.includes("invalid_api_key") || error.message.includes("API key"))) {
+            humanError = "⛔ API Key de Groq inválida. Verifica la clave en console.groq.com";
+        } else if (error.message && (error.message.includes("429") || error.message.includes("rate_limit"))) {
+            humanError = "⏳ Se ha alcanzado el límite de solicitudes de Groq por minuto. Espera unos segundos e intenta de nuevo.";
+        }
+        res.status(500).json({ error: humanError });
     }
 });
 
