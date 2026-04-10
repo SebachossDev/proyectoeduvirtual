@@ -5,8 +5,12 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import 'dotenv/config';
 import Groq from 'groq-sdk';
+
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
 
 // En ES Modules (vite/tsx) no existe __dirname de forma nativa. Lo construimos así:
 const __filename = fileURLToPath(import.meta.url);
@@ -334,19 +338,48 @@ app.post('/api/resources', upload.single('file'), async (req: any, res: any) => 
             include: { session: true }
         });
 
-        // === MOCK PIPELINE DE INGESTIÓN (RAG) ===
-        // Simular que el PDF/Archivo es procesado, se le extrae texto en fragmentos (Chunks)
-        const mockExtractedText = `Contenido técnico extraído del documento: "${title}". ${description ? `Descripción provista por el docente: ${description}.` : ''} Información vital sobre el módulo: ${resource.session.title}.`;
-        
-        await prisma.documentChunk.create({
-            data: {
-                content: mockExtractedText,
-                embedding: JSON.stringify([0.2, -0.1, 0.8, 0.55]), // Vector simulado
-                courseId: resource.session.courseId,
-                resourceId: resource.id
+        // === PIPELINE DE INGESTIÓN REAL (RAG) ===
+        // Borrar chunks anteriores de este recurso para evitar duplicados
+        await prisma.documentChunk.deleteMany({ where: { resourceId: resource.id } });
+
+        let extractedText = `Documento: "${title}". ${description ? `Descripción: ${description}.` : ''} Módulo: ${resource.session.title}.`;
+
+        // Extraer texto real del PDF si el archivo es PDF
+        if (req.file && req.file.mimetype === 'application/pdf') {
+            try {
+                const fileBuffer = fs.readFileSync(req.file.path);
+                const pdfData = await pdfParse(fileBuffer);
+                if (pdfData.text && pdfData.text.trim().length > 50) {
+                    extractedText = pdfData.text.trim();
+                    console.log(`✅ PDF parseado: ${title} - ${extractedText.length} caracteres extraídos`);
+                }
+            } catch (pdfError: any) {
+                console.warn(`⚠️ No se pudo parsear el PDF '${title}':`, pdfError.message);
             }
-        });
-        // ===========================================
+        }
+
+        // Dividir en chunks de ~1500 caracteres con solapamiento de 200
+        const CHUNK_SIZE = 1500;
+        const OVERLAP = 200;
+        const chunks: string[] = [];
+        for (let i = 0; i < extractedText.length; i += CHUNK_SIZE - OVERLAP) {
+            const chunk = extractedText.slice(i, i + CHUNK_SIZE).trim();
+            if (chunk.length > 50) chunks.push(chunk);
+        }
+        if (chunks.length === 0) chunks.push(extractedText);
+
+        await Promise.all(chunks.map((chunk, idx) =>
+            prisma.documentChunk.create({
+                data: {
+                    content: `[Doc: ${title}][Parte ${idx + 1}/${chunks.length}] ${chunk}`,
+                    embedding: JSON.stringify([]),
+                    courseId: resource.session.courseId,
+                    resourceId: resource.id
+                }
+            })
+        ));
+        console.log(`📚 RAG: ${chunks.length} chunk(s) guardados para "${title}" en curso ${resource.session.courseId}`);
+        // ==============================================
 
         // Evento en tiempo real
         sendEventToClients({ type: 'NEW_RESOURCE', payload: { resource, courseId: resource.session.courseId } });
@@ -446,7 +479,7 @@ app.post('/api/ai/chat', async (req, res) => {
     // Aislamiento: Recuperación estricta (Retrieval)
     const relevantChunks = await prisma.documentChunk.findMany({
         where: { courseId: courseId },
-        take: 3
+        take: 10
     });
 
     if (relevantChunks.length === 0) {
@@ -459,17 +492,23 @@ app.post('/api/ai/chat', async (req, res) => {
 
         const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
         
-        const systemPrompt = `Eres el "Experto Virtual de ${enrollment.course.title}", un asistente académico oficial y avanzado exclusivo para este curso.
+        const hasContext = contextText.trim().length > 20;
 
-DIRECTRICES DE COMPORTAMIENTO (MODO ASISTENTE INTELIGENTE):
-1. Responde a las preguntas del estudiante utilizando todo tu razonamiento lógico, matemático o teórico avanzado (tienes permitido usar tu conocimiento global).
-2. Debes actuar como un profesor paciente y claro. Si te hacen una pregunta académica de tu materia, explícala con ejemplos comprensibles.
-3. Relaciona tus explicaciones siempre que sea posible con el siguiente [CONTEXTO DEL CURSO], que describe el material subido por el docente.
-4. Si la pregunta está completamente fuera del ámbito académico de la materia (ej. política, cocina, chismes), indícale cortésmente que solo puedes hablar del tema de la clase.
-5. Usa notación LaTeX para fórmulas matemáticas: $formula$ para inline, $$formula$$ para bloque.
+        const systemPrompt = hasContext
+            ? `Eres el "Experto Virtual de ${enrollment.course.title}", un tutor académico oficial de este curso.
 
-[CONTEXTO DEL CURSO (Referencia de archivos del docente)]:
-${contextText}`;
+INSTRUCCIONES ESTRICTAS:
+1. SOLO puedes responder basándote en el CONTEXTO DEL CURSO proporcionado a continuación. Ese contexto proviene de los documentos que el profesor subió a esta materia.
+2. Si la respuesta a la pregunta NO está en el contexto, di exactamente: "Esta información no está en el material cargado por el profesor para este curso."
+3. NO uses conocimiento externo ni general, aunque lo sepas. Solo el contexto.
+4. Cita siempre la parte del documento de donde sacas la información con [Doc: nombre].
+5. Usa notación LaTeX para fórmulas: $formula$ (inline) o $$formula$$ (bloque).
+6. Si te preguntan algo fuera del ámbito académico, rechaza cortésmente.
+
+[CONTEXTO DEL CURSO - Documentos del profesor]:
+${contextText}`
+            : `Eres el "Experto Virtual de ${enrollment.course.title}".
+El profesor aún no ha subido material a este módulo. Comunícalo amablemente al estudiante e indícale que puede preguntar al docente que suba los documentos del curso para activar el asistente especializado.`;
 
         const chatCompletion = await groq.chat.completions.create({
             messages: [
