@@ -8,130 +8,130 @@ generator client {
 // Usaremos SQLite para desarrollo local por simplicidad en la configuración
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  url      = "file:./dev.db"
 }
 
 model User {
-  id       String @id @default(uuid())
-  code     String @unique // Ejemplo: A123 (Admin), E1234 (Estudiante), D123 (Docente)
-  password String
-  name     String
-  role     String @default("STUDENT") // "ADMIN", "TEACHER", "STUDENT"
-
+  id        String   @id @default(uuid())
+  code      String   @unique // Ejemplo: A123 (Admin), E1234 (Estudiante), D123 (Docente)
+  password  String
+  name      String
+  role      String   @default("STUDENT") // "ADMIN", "TEACHER", "STUDENT"
+  
   // Relaciones
   coursesTaught Course[]       @relation("TeacherCourses") // Cursos dados por este docente
-  enrollments   Enrollment[] // Estudiantes inscritos en cursos
+  enrollments   Enrollment[]   // Estudiantes inscritos en cursos
   backpackItems BackpackItem[] // Items en la mochila del estudiante
-
+  
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model Course {
-  id          String  @id @default(uuid())
+  id          String   @id @default(uuid())
   title       String
   description String?
+  
+  teacherId   String
+  teacher     User     @relation("TeacherCourses", fields: [teacherId], references: [id], onDelete: Cascade)
 
-  teacherId String
-  teacher   User   @relation("TeacherCourses", fields: [teacherId], references: [id], onDelete: Cascade)
-
-  sessions      Session[]
-  enrollments   Enrollment[]
+  sessions    Session[]
+  enrollments Enrollment[]
   backpackItems BackpackItem[]
-  chunks        DocumentChunk[]
+  chunks      DocumentChunk[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Enrollment {
-  id String @id @default(uuid())
-
+  id        String   @id @default(uuid())
+  
   studentId String
-  student   User   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  student   User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
-  courseId String
-  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  grade     Float?   // Calificación del estudiante en este curso
 
-  grade Float? // Calificación del estudiante en este curso
-
-  enrolledAt   DateTime  @default(now())
+  enrolledAt DateTime @default(now())
   lastAccessAt DateTime? // Última vez que el estudiante entró al curso
 
   @@unique([studentId, courseId])
 }
 
 model Session {
-  id          String  @id @default(uuid())
-  title       String // Ej: "SESIÓN 1_FEB 11", "General"
+  id          String   @id @default(uuid())
+  title       String   // Ej: "SESIÓN 1_FEB 11", "General"
   description String?
-  order       Int     @default(0) // Para ordenar en el menú
+  order       Int      @default(0) // Para ordenar en el menú
 
-  courseId String
-  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  courseId    String
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
-  resources Resource[]
+  resources   Resource[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Resource {
-  id          String  @id @default(uuid())
+  id          String   @id @default(uuid())
   title       String
   description String?
-  url         String // Enlace al material (PDF, Link, etc)
-  type        String // Ej: "PDF", "VIDEO", "LINK"
-
-  sessionId String
-  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-
+  url         String   // Enlace al material (PDF, Link, etc)
+  type        String   // Ej: "PDF", "VIDEO", "LINK"
+  
+  sessionId   String
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  
   // Aislamiento Multi-Tenant AI
-  chunks DocumentChunk[]
-
+  chunks      DocumentChunk[]
+  
   // Elementos de mochila que referencian a este recurso
   backpackItems BackpackItem[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // Fragmento de conocimiento para RAG AI (Aislamiento Total)
 model DocumentChunk {
-  id      String @id @default(uuid())
-  content String
-
+  id          String   @id @default(uuid())
+  content     String
+  
   // En SQLite local, podemos simular el embedding/vector index guardándolo en crudo
-  embedding String?
-
+  embedding   String?  
+  
   // Aislamiento por curso (MANDATORIO)
-  courseId String
-  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
-
+  courseId    String
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  
   // Origen del archivo del docente
-  resourceId String
-  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  resourceId  String
+  resource    Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
+  createdAt   DateTime @default(now())
 }
 
 // Representa un recurso guardado por un estudiante en su "Mochila"
 model BackpackItem {
-  id      String  @id @default(uuid())
-  type    String // Ej: "DOCUMENT", "AI_INSIGHT", "NOTE"
-  title   String
-  content String?
-  tags    String?
+  id          String   @id @default(uuid())
+  type        String   // Ej: "DOCUMENT", "AI_INSIGHT", "NOTE"
+  title       String
+  content     String?
+  tags        String?
+  
+  studentId   String
+  student     User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  courseId    String?
+  course      Course?  @relation(fields: [courseId], references: [id], onDelete: SetNull)
 
-  studentId String
-  student   User   @relation(fields: [studentId], references: [id], onDelete: Cascade)
-
-  courseId String?
-  course   Course? @relation(fields: [courseId], references: [id], onDelete: SetNull)
-
-  resourceId String?
-  resource   Resource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
-
-  savedAt   DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  resourceId  String?
+  resource    Resource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  
+  savedAt     DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
