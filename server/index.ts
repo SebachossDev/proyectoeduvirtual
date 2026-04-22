@@ -7,7 +7,50 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import 'dotenv/config';
-import Groq from 'groq-sdk';
+import OpenAI from 'openai';
+import PQueue from 'p-queue';
+
+// ═══ LM Studio Local Client (API compatible con OpenAI) ═══
+const lmStudio = new OpenAI({
+    baseURL: process.env.LM_STUDIO_BASE_URL || 'http://localhost:1234/v1',
+    apiKey: 'lm-studio', // LM Studio ignora la API key, pero el SDK la requiere
+});
+
+// ═══ Cola de Peticiones (Anti-Saturación para modelo local) ═══
+const aiQueue = new PQueue({
+    concurrency: parseInt(process.env.AI_MAX_CONCURRENCY || '1'),
+    timeout: parseInt(process.env.AI_QUEUE_TIMEOUT_MS || '60000'),
+});
+
+console.log(`🤖 AI Queue: concurrency=${aiQueue.concurrency}, timeout=${process.env.AI_QUEUE_TIMEOUT_MS || '60000'}ms`);
+
+// ═══ Helper: Generar Embeddings Semánticos con Nomic-Embed-Text ═══
+async function generateEmbedding(text: string, type: 'document' | 'query'): Promise<number[]> {
+    const prefix = type === 'document' ? 'search_document: ' : 'search_query: ';
+    try {
+        const response = await lmStudio.embeddings.create({
+            model: process.env.LM_STUDIO_EMBED_MODEL || 'nomic-embed-text-v1.5',
+            input: prefix + text.slice(0, 8000), // Respetar context window de Nomic (8192 tokens)
+        });
+        return response.data[0].embedding;
+    } catch (error: any) {
+        console.warn('⚠️ Embedding generation failed (LM Studio embedding model loaded?):', error.message);
+        return []; // Fallback: sin embedding, se usará solo keyword scoring
+    }
+}
+
+// ═══ Helper: Similitud Coseno entre dos vectores ═══
+function cosineSimilarity(a: number[], b: number[]): number {
+    if (a.length === 0 || b.length === 0 || a.length !== b.length) return 0;
+    let dot = 0, normA = 0, normB = 0;
+    for (let i = 0; i < a.length; i++) {
+        dot += a[i] * b[i];
+        normA += a[i] * a[i];
+        normB += b[i] * b[i];
+    }
+    const denom = Math.sqrt(normA) * Math.sqrt(normB);
+    return denom === 0 ? 0 : dot / denom;
+}
 
 const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
@@ -368,16 +411,19 @@ app.post('/api/resources', upload.single('file'), async (req: any, res: any) => 
         }
         if (chunks.length === 0) chunks.push(extractedText);
 
-        await Promise.all(chunks.map((chunk, idx) =>
-            prisma.documentChunk.create({
+        // Generar embeddings semánticos para cada chunk (si LM Studio tiene Nomic-Embed-Text cargado)
+        for (let idx = 0; idx < chunks.length; idx++) {
+            const chunkContent = `[Doc: ${title}][Parte ${idx + 1}/${chunks.length}] ${chunks[idx]}`;
+            const embeddingVec = await generateEmbedding(chunks[idx], 'document');
+            await prisma.documentChunk.create({
                 data: {
-                    content: `[Doc: ${title}][Parte ${idx + 1}/${chunks.length}] ${chunk}`,
-                    embedding: JSON.stringify([]),
+                    content: chunkContent,
+                    embedding: JSON.stringify(embeddingVec),
                     courseId: resource.session.courseId,
                     resourceId: resource.id
                 }
-            })
-        ));
+            });
+        }
         console.log(`📚 RAG: ${chunks.length} chunk(s) guardados para "${title}" en curso ${resource.session.courseId}`);
         // ==============================================
 
@@ -461,7 +507,7 @@ app.delete('/api/backpack/:itemId', async (req, res) => {
     }
 });
 
-// 6. RAG AI Experto (Aislamiento Multi-Tenant)
+// 6. RAG AI Experto (Aislamiento Multi-Tenant + Anti-Alucinación Estricta)
 app.post('/api/ai/chat', async (req, res) => {
     const { studentId, courseId, query } = req.body;
 
@@ -476,66 +522,193 @@ app.post('/api/ai/chat', async (req, res) => {
         return res.status(403).json({ error: "Acceso denegado a este contexto." });
     }
 
-    // Aislamiento: Recuperación estricta (Retrieval)
-    const relevantChunks = await prisma.documentChunk.findMany({
-        where: { courseId: courseId },
-        take: 10
+    // ═══════════════════════════════════════════════════════════════
+    // RETRIEVAL OPTIMIZADO: Scoring Semántico y Expansión de Contexto
+    // ═══════════════════════════════════════════════════════════════
+    // Paso 1: Obtener TODOS los chunks del curso
+    const allChunks = await prisma.documentChunk.findMany({
+        where: { courseId: courseId }
     });
 
-    if (relevantChunks.length === 0) {
+    if (allChunks.length === 0) {
         return res.json({ 
-            response: `Soy el Experto de ${enrollment.course.title}. Actualmente el profesor no ha subido material técnico a este módulo, por lo que no puedo responder preguntas basándome en una fuente autorizada.` 
+            response: `Soy el Experto de **${enrollment.course.title}**. Actualmente el profesor no ha subido material técnico a este curso, por lo que no puedo responder preguntas basándome en una fuente autorizada. Por favor, solicita al docente que suba los documentos del curso.` 
         });
     }
 
-    const contextText = relevantChunks.map(c => c.content).join('\n\n');
+    // Paso 2: Scoring Híbrido (Keyword 40% + Semántico 60%)
+    // Ignoramos stopwords comunes en español
+    const stopwords = new Set(['el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'y', 'o', 'pero', 'si', 'de', 'del', 'al', 'en', 'por', 'con', 'para', 'como', 'que', 'su', 'sus', 'es', 'son', 'se', 'lo', 'qué', 'cual', 'cuales', 'cómo', 'cuándo', 'dónde']);
+    const queryWords = query.toLowerCase()
+        .replace(/[¿?¡!.,;:()]/g, '')
+        .split(/\s+/)
+        .filter((w: string) => w.length > 2 && !stopwords.has(w)); 
 
-        const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+    // Generar embedding de la pregunta del estudiante (si el modelo de embeddings está disponible)
+    const queryEmbedding = await generateEmbedding(query, 'query');
+    const hasEmbeddings = queryEmbedding.length > 0;
+
+    const scoredChunks = allChunks.map(chunk => {
+        const contentLower = chunk.content.toLowerCase();
+        let keywordScore = 0;
+        let uniqueMatches = 0;
         
-        const hasContext = contextText.trim().length > 20;
+        for (const word of queryWords) {
+            const regex = new RegExp(word, 'gi');
+            const matches = contentLower.match(regex);
+            if (matches) {
+                uniqueMatches += 1;
+                keywordScore += 10 + (matches.length * 1); 
+            }
+        }
+        keywordScore = keywordScore * Math.pow(2, uniqueMatches);
 
-        const systemPrompt = hasContext
-            ? `Eres el "Experto Virtual de ${enrollment.course.title}", un tutor académico oficial de este curso.
+        // Scoring semántico (similitud coseno contra embedding del chunk)
+        let semanticScore = 0;
+        if (hasEmbeddings) {
+            const chunkEmbedding = JSON.parse(chunk.embedding || '[]');
+            if (chunkEmbedding.length > 0) {
+                semanticScore = cosineSimilarity(queryEmbedding, chunkEmbedding) * 100;
+            }
+        }
 
-INSTRUCCIONES ESTRICTAS:
-1. SOLO puedes responder basándote en el CONTEXTO DEL CURSO proporcionado a continuación. Ese contexto proviene de los documentos que el profesor subió a esta materia.
-2. Si la respuesta a la pregunta NO está en el contexto, di exactamente: "Esta información no está en el material cargado por el profesor para este curso."
-3. NO uses conocimiento externo ni general, aunque lo sepas. Solo el contexto.
-4. Cita siempre la parte del documento de donde sacas la información con [Doc: nombre].
-5. Usa notación LaTeX para fórmulas: $formula$ (inline) o $$formula$$ (bloque).
-6. Si te preguntan algo fuera del ámbito académico, rechaza cortésmente.
+        // Scoring híbrido: si hay embeddings, 40% keyword + 60% semántico; si no, 100% keyword
+        const relevanceScore = hasEmbeddings
+            ? (keywordScore * 0.4) + (semanticScore * 0.6)
+            : keywordScore;
+        
+        return { ...chunk, relevanceScore };
+    });
 
-[CONTEXTO DEL CURSO - Documentos del profesor]:
-${contextText}`
-            : `Eres el "Experto Virtual de ${enrollment.course.title}".
-El profesor aún no ha subido material a este módulo. Comunícalo amablemente al estudiante e indícale que puede preguntar al docente que suba los documentos del curso para activar el asistente especializado.`;
+    // Paso 3: Filtrar chunks con score 0 y ordenar
+    const relevantChunks = scoredChunks.filter(c => c.relevanceScore > 0)
+                                     .sort((a, b) => b.relevanceScore - a.relevanceScore);
 
-        const chatCompletion = await groq.chat.completions.create({
+    // Tomar los top hits. Usamos solo 2 para ahorrar tokens drásticamente.
+    const TOP_K = 2;
+    const topHits = relevantChunks.slice(0, TOP_K);
+
+    // Paso 4: Expansión de Contexto (Context Windowing) Optimizada
+    const chunksToInclude = new Map();
+    
+    const parseChunkMeta = (content: string) => {
+        const match = content.match(/\[Doc: (.*?)\]\[Parte (\d+)\/(\d+)\]/);
+        if (match) return { doc: match[1], part: parseInt(match[2]), total: parseInt(match[3]) };
+        return null;
+    };
+
+    for (const hit of topHits) {
+        chunksToInclude.set(hit.id, hit);
+        const meta = parseChunkMeta(hit.content);
+        if (meta) {
+            // Solo traemos el siguiente para no gastar demasiados tokens
+            const next = allChunks.find(c => c.content.startsWith(`[Doc: ${meta.doc}][Parte ${meta.part + 1}/${meta.total}]`));
+            if (next) chunksToInclude.set(next.id, next);
+        }
+    }
+
+    const finalChunks = Array.from(chunksToInclude.values());
+    const MAX_CONTEXT_CHARS = 6000; // Ajustado para modelos 3B locales con ventana de contexto limitada
+    
+    let contextText = '';
+    for (const chunk of finalChunks) {
+        if ((contextText.length + chunk.content.length) > MAX_CONTEXT_CHARS) break;
+        contextText += chunk.content + '\n\n---\n\n';
+    }
+    contextText = contextText.trim();
+    // ═══════════════════════════════════════════════════════════════
+
+    const hasContext = contextText.length > 20;
+
+    // ═══════════════════════════════════════════════════════════════
+    // SYSTEM PROMPT DE "CERO TOLERANCIA" + NEGATIVE PROMPTING
+    // ═══════════════════════════════════════════════════════════════
+    const systemPrompt = hasContext
+        ? `You are a strictly bound assistant. You are the "Experto Virtual de ${enrollment.course.title}", an official academic tutor for this course.
+
+Your knowledge is LIMITED to the provided context chunks below. These chunks come from documents uploaded by the professor to this course.
+
+STRICT INSTRUCTIONS — ZERO TOLERANCE:
+1. If the answer to the user's question cannot be inferred from the provided context, you MUST state: "Lo siento, esta información no está presente en los materiales de este curso."
+2. DO NOT use your internal knowledge. DO NOT hallucinate. DO NOT offer external explanations.
+3. You must ONLY answer based on the CONTEXT provided below. No exceptions.
+4. Always cite the source document using the format [Doc: document_name].
+5. MANDATORY: Always wrap ALL mathematical expressions in LaTeX delimiters. Use $...$ for inline math and $$...$$ for block/display math. Examples:
+   - Instead of "f(x) = sen(x)", write "$f(x) = \\sin(x)$"
+   - Instead of "f'(g(x)) * g'(x)", write "$f'(g(x)) \\cdot g'(x)$"
+   - Instead of "integral de 0 a 1", write "$\\int_0^1$"
+   - Instead of "x^2 + 3x - 5", write "$x^2 + 3x - 5$"
+   - Use \\frac{a}{b} for fractions, \\sqrt{x} for roots, \\sum, \\prod, \\lim, etc.
+   NEVER write math formulas as plain text. Every variable, equation, and expression must be in $ delimiters.
+6. Respond in Spanish, in a clear and pedagogical manner.
+
+═══ EXPLICIT PROHIBITIONS (NEGATIVE PROMPTING) ═══
+- NO respondas sobre temas fuera del temario del curso.
+- NO menciones que eres una IA entrenada por OpenAI, Google, Meta, Groq, ni ninguna otra empresa.
+- NO inventes hechos, datos, fórmulas, definiciones o explicaciones si la información es insuficiente en el contexto.
+- NO uses frases como "según mi conocimiento", "en general se sabe que", "normalmente", ni ninguna que implique conocimiento externo.
+- NO ofrezcas información complementaria que no esté en el contexto proporcionado.
+- NO especules ni hagas suposiciones sobre temas que no están en los documentos.
+- Si te piden algo fuera del ámbito académico del curso, rechaza cortésmente diciendo: "Mi función es exclusivamente ayudarte con el contenido del curso ${enrollment.course.title}."
+═══════════════════════════════════════════════════
+
+[CONTEXTO DEL CURSO — Documentos autorizados del profesor]:
+${contextText}
+
+[FIN DEL CONTEXTO — Cualquier información fuera de este bloque NO debe ser utilizada.]`
+        : `Eres el "Experto Virtual de ${enrollment.course.title}".
+El usuario te ha dicho: "${query}".
+Dado que su mensaje no incluye palabras clave que hagan match con los documentos del curso (o simplemente te está saludando), responde de manera amigable.
+Si es un saludo, devuélvelo cortésmente e invítalo a hacerte preguntas específicas sobre el material de estudio.
+Si te está haciendo una pregunta técnica, dile: "Lo siento, esta información no está presente en los materiales de este curso."
+NO respondas preguntas de contenido académico basándote en tu conocimiento interno. Siempre redirige al material del curso.`;
+
+    // ═══════════════════════════════════════════════════════════════
+    // INFERENCIA LOCAL VÍA LM STUDIO (con cola anti-saturación)
+    // ═══════════════════════════════════════════════════════════════
+    console.log(`🧠 Cola AI: pendientes=${aiQueue.pending}, activas=${aiQueue.size}`);
+    const chatCompletion = await aiQueue.add(async () => {
+        return lmStudio.chat.completions.create({
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: query }
             ],
-            model: 'llama-3.3-70b-versatile',
-            temperature: 0.7,
-            max_tokens: 4096,
+            model: process.env.LM_STUDIO_CHAT_MODEL || 'qwen2.5-3b-instruct',
+            temperature: 0.1,
+            max_tokens: 1024,
+            top_p: 0.9,
         });
+    });
 
-        const responseText = chatCompletion.choices[0]?.message?.content || 'No se pudo generar una respuesta.';
+        const responseText = chatCompletion?.choices[0]?.message?.content || 'No se pudo generar una respuesta.';
         res.json({ response: responseText });
     } catch (error: any) {
-        console.error("Error AI API:", error.message);
-        let humanError = "Lo sentimos, el servidor experimentó un problema al conectarse con el experto. " + error.message;
-        if (error.message && (error.message.includes("401") || error.message.includes("invalid_api_key") || error.message.includes("API key"))) {
-            humanError = "⛔ API Key de Groq inválida. Verifica la clave en console.groq.com";
-        } else if (error.message && (error.message.includes("429") || error.message.includes("rate_limit"))) {
-            humanError = "⏳ Se ha alcanzado el límite de solicitudes de Groq por minuto. Espera unos segundos e intenta de nuevo.";
+        console.error("Error AI (LM Studio):", error.message);
+        let humanError = "Lo sentimos, el servidor experimentó un problema al conectarse con el modelo local.";
+        if (error.message && error.message.includes('ECONNREFUSED')) {
+            humanError = "⛔ No se pudo conectar con LM Studio. Asegúrate de que LM Studio esté ejecutándose con el servidor local activo en el puerto configurado.";
+        } else if (error.message && error.message.includes('timeout')) {
+            humanError = "⏳ La petición excedió el tiempo límite. El modelo local puede estar saturado. Intenta de nuevo en unos segundos.";
+        } else {
+            humanError += " " + error.message;
         }
         res.status(500).json({ error: humanError });
     }
 });
 
+// 7. Estado de la cola de IA (para feedback de UX en el frontend)
+app.get('/api/ai/queue-status', (req, res) => {
+    res.json({
+        pending: aiQueue.pending,   // Peticiones en espera
+        active: aiQueue.size,       // Peticiones procesándose ahora
+        concurrency: aiQueue.concurrency,
+    });
+});
+
 const PORT = 3000;
 app.listen(PORT, () => {
     console.log(`✅ Servidor backend corriendo en http://localhost:${PORT}`);
-
+    console.log(`🤖 Conectando a LM Studio en: ${process.env.LM_STUDIO_BASE_URL || 'http://localhost:1234/v1'}`);
+    console.log(`📊 Modelo de chat: ${process.env.LM_STUDIO_CHAT_MODEL || 'qwen2.5-3b-instruct'}`);
+    console.log(`📐 Modelo de embeddings: ${process.env.LM_STUDIO_EMBED_MODEL || 'nomic-embed-text-v1.5'}`);
 });

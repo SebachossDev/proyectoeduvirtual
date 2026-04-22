@@ -11,6 +11,58 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 
+/**
+ * Post-procesa texto del LLM para envolver fórmulas matemáticas en delimitadores $...$
+ * cuando el modelo las devuelve como texto plano.
+ */
+function postProcessMath(text: string): string {
+    if (!text) return text;
+
+    // No tocar texto que ya tenga delimitadores LaTeX
+    if (text.includes('$$') || /(?<!\\)\$[^$]+\$/.test(text)) return text;
+
+    let result = text;
+
+    // Patrón: líneas que son pura fórmula (e.g., "f(x) = sen(x) y g(x) = 2x")
+    // Detecta líneas que contienen funciones matemáticas y operadores
+    result = result.replace(
+        /^([ \t]*)((?:[a-zA-Z]'?\([^)]*\)|\d+)(?:\s*[=+\-*/·×÷^]\s*(?:[a-zA-Z]'?\([^)]*\)|\d+|[a-zA-Z]))+)\s*$/gm,
+        (match, indent, formula) => `${indent}$${formula.trim()}$`
+    );
+
+    // Patrón: f'(g(x)) * g'(x), derivadas compuestas inline
+    result = result.replace(
+        /(?<![$\\])\b([a-zA-Z]'\([a-zA-Z]\([a-zA-Z]\)\)\s*[·*]\s*[a-zA-Z]'\([a-zA-Z]\))(?!\$)/g,
+        ' $$$1$$ '
+    );
+
+    // Patrón: integrales ∫ ... dx
+    result = result.replace(
+        /(?<![$\\])(∫[^\n]*?d[a-zA-Z])(?!\$)/g,
+        ' $$$1$$ '
+    );
+
+    // Patrón: fracciones escritas como a/b con contexto matemático
+    result = result.replace(
+        /(?<![$\\a-zA-Z])([a-zA-Z0-9()]+\/[a-zA-Z0-9()]+)(?=\s|$|[.,;)])/g,
+        (match, frac) => {
+            // Solo envolver si parece realmente una fracción matemática
+            if (/^[a-zA-Z0-9()]+\/[a-zA-Z0-9()]+$/.test(frac) && /[a-zA-Z]/.test(frac)) {
+                return `$${frac}$`;
+            }
+            return match;
+        }
+    );
+
+    // Patrón: expresiones sueltas tipo "sen(2x)", "cos(x)", "tan(θ)" que no estén ya en $
+    result = result.replace(
+        /(?<![$\\a-zA-Z])((?:sen|sin|cos|tan|cot|sec|csc|log|ln|lim|max|min|sup|inf)\([^)]+\))(?![a-zA-Z$])/gi,
+        ' $$$1$$ '
+    );
+
+    return result;
+}
+
 export default function StudentDashboard() {
     const navigate = useNavigate();
 
@@ -271,10 +323,11 @@ export default function StudentDashboard() {
                 })
             });
             const data = await res.json();
+            const rawContent = data.response || data.error || 'Error procesando respuesta aislada.';
             
             setChatMessages(prev => [...prev, {
                 role: 'assistant',
-                content: data.response || data.error || 'Error procesando respuesta aislada.'
+                content: postProcessMath(rawContent)
             }]);
         } catch (error) {
             console.error(error);
